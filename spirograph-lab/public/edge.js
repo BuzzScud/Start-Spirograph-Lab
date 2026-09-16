@@ -53,7 +53,6 @@ export function createEdgeView(el, { netPanel, wire, regrade }) {
           <svg class="edRace" data-e="race" role="img" aria-label="Every caller's right calls beyond always guessing the usual way, call by call"></svg>
         </div>
         <div class="edCard edBoard" data-e="board"></div>
-        <details class="edHow"><summary>${ICON.chev}How this check works</summary><ol data-e="how"></ol></details>
       </div>
       <aside class="edCard edPanel" data-e="panel">
         <div>
@@ -81,7 +80,8 @@ export function createEdgeView(el, { netPanel, wire, regrade }) {
           <span class="hint">every weight and sum, for the call shown</span>
         </div>
       </aside>
-    </div>`;
+    </div>
+    <details class="edHow"><summary>${ICON.chev}How this check works</summary><ol data-e="how"></ol></details>`;
   const $ = k => el.querySelector(`[data-e="${k}"]`);
   const tip = document.createElement('div'); tip.className = 'edTip'; tip.hidden = true; document.body.appendChild(tip);
   const showTip = (e, html) => {

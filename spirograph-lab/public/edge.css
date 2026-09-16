@@ -1,6 +1,9 @@
 /* The Edge check tab (public/edge.js): design B "One panel", and the big "Full wiring and math" pop-up. */
 .edI{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.edGrid{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:14px;align-items:start}
+/* the panel stretches to the table's bottom edge; the walkthrough runs the full width under both */
+.edGrid{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:14px;align-items:stretch}
+.edGrid + .edHow{margin-top:14px}
+.edMain > .edBoard{flex:1}
 .edMain{display:flex;flex-direction:column;gap:14px;min-width:0}
 .edCard{border-radius:14px;border:1px solid var(--border);background:var(--glass)}
 .edCard[hidden]{display:none}
@@ -25,7 +28,7 @@
 /* the scoreboard (the race's legend) */
 .edBoard{padding:4px 0 10px;overflow-x:auto;scrollbar-width:thin}
 .edBoard > *{min-width:520px}
-.edBRow{display:grid;grid-template-columns:200px 78px minmax(200px,1fr) 64px 86px minmax(220px,1fr);align-items:center;gap:0 14px;padding:0 18px}
+.edBRow{display:grid;grid-template-columns:200px 78px minmax(200px,1fr) 78px 104px minmax(220px,1fr);align-items:center;gap:0 14px;padding:0 18px}
 .edBHead{height:34px;color:var(--faint);font:700 9.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;white-space:nowrap}
 .edBRow .r{text-align:right}
 .edScale{position:relative;height:12px;letter-spacing:0}
@@ -64,7 +67,8 @@
 .edHow b{color:var(--ink-2)}
 
 /* the side panel */
-.edPanel{position:sticky;top:64px;display:flex;flex-direction:column}
+.edPanel{display:flex;flex-direction:column}
+.edPanel > [data-e="secCall"]{flex:1}
 .edPanel > div{padding:16px 18px}
 .edPanel > div + div{border-top:1px solid var(--border)}
 .edPanelHead{display:flex;align-items:center;gap:0}
@@ -117,18 +121,18 @@
 .edTip[hidden]{display:none}
 .edTip .okT{color:var(--ok)}.edTip .badT{color:var(--err)}
 
-/* the big pop-up: nearly the whole window */
-.edWire{width:calc(100vw - 32px);max-width:none;height:calc(100vh - 32px);max-height:none;margin:auto;padding:0;border-radius:16px;border:1px solid var(--border-2);background:#0b0f16;color:var(--ink);box-shadow:0 24px 80px rgb(0 0 0 / 70%);overflow:hidden}
+/* the big pop-up: capped so it sits in the window with room around it; height follows its content */
+.edWire{width:min(1564px,calc(100vw - 64px));max-width:none;height:fit-content;max-height:calc(100vh - 64px);margin:auto;padding:0;border-radius:16px;border:1px solid var(--border-2);background:#0b0f16;color:var(--ink);box-shadow:0 24px 80px rgb(0 0 0 / 70%);overflow:hidden}
 .edWire[open]{display:flex;flex-direction:column}
 .edWire::backdrop{background:rgb(0 0 0 / 60%);backdrop-filter:blur(3px)}
 .edWireHead{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border)}
 .edWireHead > div{flex:1;min-width:0}
 .edWireHead h2{margin:0 0 3px;font:700 19px/1.15 var(--sans)}
 .edWireHead span{color:var(--muted);font:500 12.5px/1.4 var(--sans)}
-.edWireBody{flex:1;min-height:0;overflow:auto;padding:14px 20px 20px}
+.edWireBody{flex:0 1 auto;min-height:0;overflow:auto;padding:14px 20px 20px}
 .edWire .netPanel{padding-top:0}
 .edWire .netGrid{grid-template-columns:minmax(0,1.6fr) minmax(360px,1fr)}
-.edWire .netSvg{max-height:calc(100vh - 250px)}
+.edWire .netSvg{max-height:min(690px,calc(100vh - 300px))}
 .edWire .netPanel > h3,.edWire .netPanel > .note{display:none}
 .edWireHead{position:relative}
 .edWireAbout{position:absolute;top:calc(100% - 6px);right:20px;z-index:5;width:min(620px,calc(100vw - 80px));padding:14px 16px;border-radius:12px;border:1px solid var(--border-2);background:#141925;box-shadow:0 16px 40px rgb(0 0 0 / 55%)}
@@ -140,14 +144,17 @@
   .edWire .netLoss{height:64px}
   .edWire .netPanel{gap:8px}
 }
-@media (max-width:1250px){
+@media (max-width:1600px){
+  .edBRow{grid-template-columns:180px 70px minmax(150px,1fr) 70px 96px minmax(140px,1fr);gap:0 12px}
+}
+@media (max-width:1320px){
   .edGrid{grid-template-columns:minmax(0,1fr)}
   .edPanel{position:static}
 }
 @media (max-width:900px){
   .edBRow{grid-template-columns:150px 64px minmax(140px,1fr) 56px 76px;gap:0 10px}
   .edBRow > :last-child{display:none}
-  .edWire{width:100vw;height:100vh;border-radius:0}
+  .edWire{width:100vw;max-height:100vh;border-radius:0}
   .edWire .netGrid{grid-template-columns:1fr}
 }
 

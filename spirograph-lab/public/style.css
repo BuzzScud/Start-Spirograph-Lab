@@ -142,9 +142,9 @@ tr.learner .rate .val{background:var(--violet)}
 .nmCol > h3:first-child{margin-top:0}
 .netModal .table th{white-space:normal;vertical-align:bottom}
 @media (min-width:1200px){
-  .netModal{width:min(1500px,calc(100vw - 32px));max-height:calc(100vh - 32px)}
-  .netModal.bench{width:calc(100vw - 32px);height:calc(100vh - 32px)}
-  .netModal.bench .nmMain{display:grid;grid-template-columns:minmax(0,1fr) minmax(500px,.85fr);gap:0;padding:0;overflow:hidden}
+  .netModal{width:min(1280px,calc(100vw - 64px));max-height:calc(100vh - 64px)}
+  .netModal.bench{width:min(1360px,calc(100vw - 64px));height:min(860px,calc(100vh - 64px))}
+  .netModal.bench .nmMain{display:grid;grid-template-columns:minmax(0,1fr) minmax(420px,.85fr);gap:0;padding:0;overflow:hidden}
   .netModal.bench .nmCenter{display:flex;flex-direction:column;gap:10px;min-height:0;padding:14px 18px 16px;overflow:hidden}
   .netModal.bench .nmAnswer{position:static;grid-template-columns:2fr 1fr 1fr;margin:0;padding:0}
   .netModal.bench .nmScale{flex-wrap:wrap;gap:2px 8px}
@@ -180,6 +180,36 @@ tr.learner .rate .val{background:var(--violet)}
 .nmKick em{font:500 11px/1.3 var(--sans);font-style:normal;letter-spacing:0;text-transform:none;color:var(--faint)}
 .nmGrp > .nmKick{margin-bottom:8px}
 .nmCap{margin:6px 0 0;color:var(--faint);font:500 11.5px/1.45 var(--sans)}
+.nmStory{padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:#131822;color:var(--ink-2);font:500 13px/1.5 var(--sans)}
+.nmStory b{color:var(--ink);font-weight:600}
+.nmStory.wi{background:rgb(245 181 68 / 6%)}
+.nmStory .nmFaint{color:var(--muted)}
+.nmBlockHead .nmKick em{margin-left:4px}
+.nmTune .nmKick{flex-wrap:wrap;row-gap:3px}
+.nmTune .nmKick em{flex:1 1 100%;padding-left:23px}
+/* the hidden neuron, output and weight pop-ups: bars of each push, On/Off pills, reset-all */
+.nmBars{display:flex;flex-direction:column;gap:2px;overflow:auto;scrollbar-width:thin}
+.nmBars .nmBlockHead{margin:6px 0 6px}
+.nmBars .nmBlockHead:first-child{margin-top:0}
+.nmBarRow{display:grid;grid-template-columns:minmax(90px,140px) minmax(0,1fr) 84px;align-items:center;gap:10px;padding:5px 8px;border-radius:8px;color:var(--ink-2);font:500 12.5px/1.2 var(--mono)}
+.nmBarRow[data-go]{cursor:pointer}
+.nmBarRow[data-go]:hover{background:rgb(255 255 255 / 4%)}
+.nmBarRow .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nmBarRow .tr{position:relative;height:10px;border-radius:3px;background:rgb(255 255 255 / 4%)}
+.nmBarRow .tr::after{content:'';position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:rgb(255 255 255 / 20%)}
+.nmBarRow .tr i{position:absolute;top:0;bottom:0;border-radius:3px}
+.nmBarRow .tr i.pos{background:#a78bfa}.nmBarRow .tr i.neg{background:#5ce1ff}
+.nmBarRow .v{text-align:right}
+.nmBarRow.bias .nm{color:var(--faint)}
+.nmBarRow.ed .nm,.nmBarRow.ed .v{color:var(--amber)}
+.nmBarRow.ed .tr i{background:var(--amber)}
+.nmBarRow.muted .nm,.nmBarRow.muted .v{color:var(--faint)}
+.nmBarRow.muted .v{text-decoration:line-through}
+.nmBarRow.muted .tr i{background:rgb(255 255 255 / 14%)}
+.nmQuick{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.nmResetAll{align-self:flex-start}
+.nmMath .nmCols{grid-template-columns:minmax(0,1fr);gap:4px}
+.nmMath h3{font-size:13px}
 .nmFaint{color:var(--faint)}
 .nmVal{display:flex;align-items:stretch;border-radius:10px;border:1px solid var(--border-2);background:#0a0d13;overflow:hidden}
 .nmVal.edited{border-color:rgb(245 181 68 / 55%)}

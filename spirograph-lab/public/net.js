@@ -7,6 +7,8 @@
 //   what-if   edit an input's raw value on the call shown; only that call's answer is recomputed, training is untouched
 //   variant   leave an input out of training, shuffle it or negate it; the walk restarts, marked not comparable to the server's
 //   presets   what-if: flip the call or set P(up), solving for this input's value; retrain: the variant modes above
+//   weights   what-if on the network itself (hidden neuron, output or weight pop-ups): turn a hidden neuron off, nudge a
+//             bias, set a weight; applied to a copy of the call's snapshot, training untouched
 // Edits are forgotten when the call, the grade or the training changes. Opening an audit pauses training.
 import { netWalk, netScore, explain, snapshot, withMask, solveInput, tweakRows, pUp, INPUTS, WARM, NET } from '/lab/labNet.js';
 import { esc, when, pct, sgn, int } from '/lab/util.js';
@@ -15,6 +17,7 @@ const NS = 'http://www.w3.org/2000/svg', POS = '#a78bfa', NEG = '#5ce1ff';
 const W = 760, H = 460, XI = 118, XH = 390, XO = 650;
 const yAt = (k, n) => 40 + (k + 0.5) * (H - 70) / n;
 const OUT = ['P(up)', 'size'];
+const D = INPUTS.length, HN = NET.hidden;
 const f4 = v => (!Number.isFinite(v) ? '—' : (Math.abs(v) >= 1000 ? v.toFixed(1) : v.toFixed(4)).replace('-', '−'));
 const sf = v => (!Number.isFinite(v) ? '—' : (v < 0 ? '−' : '+') + f4(Math.abs(v)));
 const pf = v => (v < 0 ? `(−${f4(-v)})` : f4(v));   // a value after a minus sign
@@ -97,16 +100,17 @@ export function createNetPanel(el) {
 
   // ------------------------------------------------------------ training
   const S = { grade: null, rows: [], gen: null, net: null, snaps: [], calls: [], losses: [], done: false, playing: false, speed: 4, pick: null, raf: 0,
-    mask: INPUTS.map(() => 1), tweak: {}, base: [], edits: {}, editsFor: null, modal: null, preset: null, open: 1, drag: false, cw: 0 };
+    mask: INPUTS.map(() => 1), tweak: {}, base: [], edits: {}, wedits: {}, editsFor: null, modal: null, preset: null, open: 1, drag: false, cw: 0 };
   const variant = () => S.mask.some(m => !m) || Object.keys(S.tweak).length > 0;
   const MODES = [['real', 'Real'], ['shuffle', 'Shuffled'], ['negate', 'Negated'], ['off', 'Left out']];
+  const MODE_TIP = { real: 'the input as it really was', shuffle: 'values mixed up across forecasts, so no link to the outcome', negate: 'every value with its sign flipped', off: 'the network never sees this input' };
   const modeOf = j => (!S.mask[j] ? 'off' : S.tweak[j] || 'real');
 
   function reset() {
     clearTimeout(S.raf);
     S.rows = tweakRows(S.base, S.tweak); S.preset = null;
     S.gen = S.rows.length ? netWalk(S.rows, withMask(S.mask)) : null;
-    S.net = null; S.snaps = []; S.calls = []; S.losses = []; S.done = !S.gen; S.playing = false; S.pick = null; S.edits = {};
+    S.net = null; S.snaps = []; S.calls = []; S.losses = []; S.done = !S.gen; S.playing = false; S.pick = null; S.edits = {}; S.wedits = {};
     paint();
   }
   function step() {
@@ -132,12 +136,39 @@ export function createNetPanel(el) {
   function current() {
     if (!S.snaps.length) return null;
     const calls = S.calls, at = S.pick == null ? calls.length - 1 : Math.min(S.pick, calls.length - 1), c = calls[at] || null;
-    if (S.editsFor !== (c ? c.i : -1)) { S.edits = {}; S.editsFor = c ? c.i : -1; }   // edits belong to one call: a new call forgets them
+    if (S.editsFor !== (c ? c.i : -1)) { S.edits = {}; S.wedits = {}; S.editsFor = c ? c.i : -1; }   // edits belong to one call: a new call forgets them
     const fitAt = c ? c.fit : S.snaps.length - 1, fit = S.snaps[fitAt], prev = S.snaps[fitAt - 1] || null;
     const row = c ? S.rows[c.i] : S.rows[Math.min(S.rows.length, WARM) - 1];
     const x = row.x.map((v, j) => (j in S.edits ? S.edits[j] : v));
-    const real = explain(fit.snap, row.x, row), edited = Object.keys(S.edits).length ? explain(fit.snap, x, row) : real;
-    return { c, at, row, x, fit, fitAt, prev, real, ex: edited, edited: edited !== real };
+    const wed = Object.keys(S.wedits).length > 0, snap = wed ? applyW(fit.snap) : fit.snap;
+    const real = explain(fit.snap, row.x, row), edited = Object.keys(S.edits).length || wed ? explain(snap, x, row) : real;
+    return { c, at, row, x, fit, snap, fitAt, prev, real, ex: edited, edited: edited !== real };
+  }
+  /** A copy of snapshot `sn` with the weight what-ifs in `ed`: keys W1:i, W2:i, b1:k, b2:o set a value; mute:k silences h(k+1). */
+  function applyW(sn, ed = S.wedits) {
+    const n = { ...sn, W1: sn.W1.slice(), W2: sn.W2.slice(), b1: sn.b1.slice(), b2: sn.b2.slice() };
+    for (const key in ed) {
+      const [arr, i] = key.split(':');
+      if (arr === 'mute') { n.W2[+i] = 0; n.W2[sn.h + +i] = 0; } else n[arr][+i] = ed[key];
+    }
+    return n;
+  }
+  const baseOf = (sn, key) => { const [arr, i] = key.split(':'); return arr === 'mute' ? 0 : sn[arr][+i]; };
+  const valueNow = (sn, key) => (key in S.wedits ? S.wedits[key] : baseOf(sn, key));
+  function setW(key, v) {
+    const c = current(); if (!c || !c.c || !Number.isFinite(v)) return;
+    if (v === baseOf(c.fit.snap, key)) delete S.wedits[key]; else S.wedits[key] = v;
+    paint();
+  }
+  /** The weight what-ifs in words: plain for the diagram's what-if line, marked up for the pop-up's sentence. */
+  function wWords(key, sn, html) {
+    const [arr, i] = key.split(':'), n = +i, v = S.wedits[key], b = html ? s => `<b class="amberT">${s}</b>` : s => s;
+    const at = html ? ` at ${b(sf(v))}` : ` ${sf(baseOf(sn, key))} → ${sf(v)}`;
+    if (arr === 'mute') return `h${n + 1} ${b('turned off')}`;
+    if (arr === 'b1') return `h${n + 1}'s bias${at}`;
+    if (arr === 'b2') return `${OUT[n]}'s bias${at}`;
+    if (arr === 'W1') return `the ${esc(INPUTS[n % D])} → h${Math.floor(n / D) + 1} weight${at}`;
+    return `the h${(n % HN) + 1} → ${OUT[Math.floor(n / HN)]} weight${at}`;
   }
 
   // ------------------------------------------------------------ painting
@@ -180,13 +211,14 @@ export function createNetPanel(el) {
     } else $('call').textContent = S.net ? `training on the first ${Math.min(n, WARM)} forecasts… (click a node to audit the last of them)` : '';
     const wi = $('whatif');
     wi.hidden = !(cur && cur.edited);
-    if (cur && cur.edited) wi.innerHTML = `<b>What-if</b> · ${Object.keys(S.edits).map(j => `${esc(INPUTS[j])} ${f4(cur.row.x[j])} → ${f4(S.edits[j])}`).join(' · ')} · P(up) ${pct(cur.real.p)} → <b>${pct(cur.ex.p)}</b> · size ${sgn(cur.real.size)} → <b>${sgn(cur.ex.size)}</b> <button type="button" class="btn sm" data-a="clearEdits">Reset edits</button>`;
+    if (cur && cur.edited) wi.innerHTML = `<b>What-if</b> · ${[...Object.keys(S.edits).map(j => `${esc(INPUTS[j])} ${f4(cur.row.x[j])} → ${f4(S.edits[j])}`), ...Object.keys(S.wedits).map(k => wWords(k, cur.fit.snap, false))].join(' · ')} · P(up) ${pct(cur.real.p)} → <b>${pct(cur.ex.p)}</b> · size ${sgn(cur.real.size)} → <b>${sgn(cur.ex.size)}</b> <button type="button" class="btn sm" data-a="clearEdits">Reset edits</button>`;
 
     if (cur) {
-      const { ex, fit } = cur, sn = fit.snap;
+      const { ex } = cur, sn = cur.snap;
       for (const e of edges) {
         const w = e.layer === 1 ? sn.W1[e.k * sn.d + e.j] : sn.W2[e.o * sn.h + e.k], a = Math.abs(w), dead = e.layer === 1 && !sn.mask[e.j];
-        e.el.setAttribute('stroke', w >= 0 ? POS : NEG);
+        const ed = (e.layer === 1 ? `W1:${e.k * D + e.j}` : `W2:${e.o * HN + e.k}`) in S.wedits;
+        e.el.setAttribute('stroke', ed ? '#f5b544' : w >= 0 ? POS : NEG);
         e.el.setAttribute('stroke-width', (0.4 + Math.min(4.5, a * 1.6)).toFixed(2));
         e.el.setAttribute('opacity', dead ? '0.05' : (0.12 + Math.min(0.8, a * 0.45)).toFixed(2));
       }
@@ -194,12 +226,17 @@ export function createNetPanel(el) {
         const z = ex.inputs[j].z; fill(v, 0.5 + Math.max(-2, Math.min(2, z)) / 4, S.mask[j] ? z.toFixed(1) : 'off');
         v.g.classList.toggle('edited', j in S.edits); v.g.classList.toggle('off', !S.mask[j]);
       });
-      vhid.forEach((v, k) => fill(v, ex.hidden[k].a, ex.hidden[k].a.toFixed(2)));
+      vhid.forEach((v, k) => {
+        fill(v, ex.hidden[k].a, ex.hidden[k].a.toFixed(2));
+        v.g.classList.toggle('edited', `b1:${k}` in S.wedits || `mute:${k}` in S.wedits); v.g.classList.toggle('off', `mute:${k}` in S.wedits);
+      });
+      vout.forEach((v, o) => v.g.classList.toggle('edited', `b2:${o}` in S.wedits));
       fill(vout[0], ex.p, ex.p.toFixed(2)); fill(vout[1], 0.5 + Math.max(-1, Math.min(1, ex.size / (2 * ex.msd))) / 2, ex.size.toFixed(0));
     } else {
       for (const e of edges) { e.el.setAttribute('stroke', 'rgb(255 255 255 / 12%)'); e.el.setAttribute('stroke-width', '0.6'); e.el.setAttribute('opacity', '1'); }
       for (const v of [...vin, ...vhid, ...vout]) fill(v, 0, '');
       vin.forEach((v, j) => { v.g.classList.remove('edited'); v.g.classList.toggle('off', !S.mask[j]); });
+      for (const v of [...vhid, ...vout]) v.g.classList.remove('edited', 'off');
     }
     drawLoss();
     const every = Math.max(1, Math.ceil(Math.max(0, n - WARM) / NET.maxFits));
@@ -239,7 +276,7 @@ export function createNetPanel(el) {
     $('mKind').textContent = target.kind === 'in' ? `Input ${target.j + 1} of ${INPUTS.length}` : { hid: 'Hidden neuron', out: 'Output', edge: 'Weight' }[target.kind];
     $('mTitle').textContent = target.kind === 'edge'
       ? (target.layer === 1 ? `${INPUTS[target.j]} → h${target.k + 1}` : `h${target.k + 1} → ${OUT[target.o]}`) : nodeName(target);
-    dlg.classList.toggle('bench', target.kind === 'in');
+    dlg.classList.add('bench');
     renderModalCtl();
     renderModalBody();
     paint();
@@ -256,11 +293,11 @@ export function createNetPanel(el) {
   /** The value box: built once per open, so typing keeps focus while everything else redraws. Presets and retrain go in `dyn`. */
   function renderModalCtl() {
     const t = S.modal, ctl = $('mCtl');
-    if (t.kind !== 'in') { ctl.innerHTML = ''; ctl.hidden = true; return; }
     ctl.hidden = false;
+    if (t.kind !== 'in') { renderCtlW(t); return; }
     const cur = current(), j = t.j;
     ctl.innerHTML = `
-      <div class="nmGrp"><div class="nmKick">${ic('sliders')} Value <em>this call only · training untouched</em></div>
+      <div class="nmGrp"><div class="nmKick">${ic('sliders')} 1 · Try a value <em>type it, use − +, or click the curve</em></div>
         <div class="nmVal" data-c="box"><button type="button" data-c="dn" title="−0.1 spread" aria-label="Down a tenth of a spread">−</button><input type="number" step="any" data-c="val" value="${cur ? +cur.x[j].toFixed(4) : ''}" aria-label="${esc(INPUTS[j])} on this call"><button type="button" data-c="up" title="+0.1 spread" aria-label="Up a tenth of a spread">+</button></div>
         <div class="nmValMeta"><span data-c="real"></span><button type="button" class="nmLink" data-c="resetVal">${ic('reset')} Reset</button></div></div>
       <div data-c="dyn" class="nmDyn"></div>`;
@@ -272,7 +309,9 @@ export function createNetPanel(el) {
   }
   // the left column's buttons are redrawn often: one listener each, for the life of the panel
   $('mCtl').addEventListener('click', e => {
-    if (!S.modal || S.modal.kind !== 'in') return;
+    if (!S.modal) return;
+    if (e.target.closest('[data-c="resetAll"]')) { S.edits = {}; S.wedits = {}; S.preset = null; renderModalCtl(); paint(); return; }
+    if (S.modal.kind !== 'in') { clickW(e); return; }
     const j = S.modal.j, p = e.target.closest('[data-p]'), m = e.target.closest('[data-m]'), run = e.target.closest('[data-c="runEnd"]');
     if (p && !p.disabled) applyPreset(p.dataset.p);
     if (m && m.dataset.m !== modeOf(j)) {
@@ -289,7 +328,7 @@ export function createNetPanel(el) {
   /** Each preset for input j on the call shown: the value nearest the real one that gets P(up) there, the other edits kept. */
   function presetsFor(cur, j) {
     if (!cur || !S.mask[j]) return [];
-    const sn = cur.fit.snap, xr = Array.from(cur.x); xr[j] = cur.row.x[j];
+    const sn = cur.snap, xr = Array.from(cur.x); xr[j] = cur.row.x[j];
     const from = pUp(sn, xr);
     return [['flip', from > 0.5 ? 0.495 : 0.505], ...[0.1, 0.3, 0.5, 0.7, 0.9].map(t => [String(t), t])].map(([key, target]) => ({ key, target, from, ...solveInput(sn, cur.x, j, target, cur.row.x[j]) }));
   }
@@ -307,6 +346,7 @@ export function createNetPanel(el) {
 
   /** The left column's moving parts: the value box's state, the preset list, the retrain switch and its score. */
   function renderTune(cur, presets) {
+    if (S.modal.kind !== 'in') { renderTuneW(cur, S.modal); return; }
     const ctl = $('mCtl'), j = S.modal.j, dyn = ctl.querySelector('[data-c="dyn"]');
     if (!dyn) return;
     const can = !!(cur && cur.c && S.mask[j]), edited = !!cur && j in S.edits, val = ctl.querySelector('[data-c="val"]');
@@ -320,7 +360,7 @@ export function createNetPanel(el) {
     const sd = cur ? cur.fit.snap.sd[j] : 1, y = cur ? cur.row.y : 0;
     const rows = (can ? presets : [['flip'], ['0.1'], ['0.3'], ['0.5'], ['0.7'], ['0.9']].map(([key]) => ({ key, target: key === 'flip' ? 0.5 : +key }))).map(p => {
       const reach = 'v' in p, on = S.preset && S.preset.key === p.key && S.preset.j === j && cur && cur.c && S.preset.call === cur.c.i && S.edits[j] === S.preset.v;
-      const res = !can ? '' : reach ? `<b>${f4(p.v)}</b><br>${((p.v - cur.row.x[j]) / sd).toFixed(2).replace('-', '−')} spreads` : `<span class="badT">out of reach</span><br>${pct(p.lo)}–${pct(p.hi)} only`;
+      const res = !can ? '' : reach ? `<b>${f4(p.v)}</b><br>${Math.abs((p.v - cur.row.x[j]) / sd).toFixed(2)} spreads ${p.v < cur.row.x[j] ? 'lower' : 'higher'}` : `<span class="badT">out of reach</span><br>${pct(p.lo)}–${pct(p.hi)} only`;
       const sub = !can ? '' : p.key === 'flip' ? `→ ${callOf(1 - p.from)} · ${(p.from > 0.5 ? 0 : 1) === y ? 'makes it right' : 'makes it wrong'}`
         : reach ? `calls ${callOf(p.p)}${Math.abs(p.p - 0.5) < 1e-6 ? ' (on the line)' : ''} · ${(p.p > 0.5 ? 1 : 0) === y ? 'right way' : 'wrong way'}` : 'this input alone cannot get there';
       return `<button type="button" class="nmPreset ${on ? 'on' : ''}" data-p="${p.key}" ${can && reach ? '' : 'disabled'}>${ic(p.key === 'flip' ? 'flip' : 'target')}<span class="nmPl">${presetName(p)}${sub ? `<i>${sub}</i>` : ''}</span><span class="nmPr">${res}</span></button>`;
@@ -339,15 +379,16 @@ export function createNetPanel(el) {
     } else if (ref && ref.tested) score = `<div class="nmCap">the server's run: direction ${pct(ref.rate)} · size miss ${ref.mae.toFixed(1)} · ${ref.fingerprint}</div>`;
 
     dyn.innerHTML = `
-      <div class="nmGrp"><div class="nmKick">${ic('target')} Presets <em>${why ? esc(why) : 'where each lands · pinned on the curve'}</em></div><div class="nmPresets">${rows}</div></div>
-      <div class="nmGrp"><div class="nmKick">${ic('shuffle')} ${esc(INPUTS[j])} in training <em>retrains as a variant</em></div>
-        <div class="seg nmSeg">${MODES.map(([m, l]) => `<button type="button" data-m="${m}" class="${mode === m ? 'on' : ''}">${l}</button>`).join('')}</div>
-        ${score ? `<div class="nmRetr">${score}</div>` : ''}</div>`;
+      <div class="nmGrp"><div class="nmKick">${ic('target')} 2 · Or jump to an answer <em>${why ? esc(why) : 'the value that gets it there · ◇ on the curve'}</em></div><div class="nmPresets">${rows}</div></div>
+      <div class="nmGrp"><div class="nmKick">${ic('shuffle')} 3 · Does ${esc(INPUTS[j])} matter? <em>retrain the network without it</em></div>
+        <div class="seg nmSeg">${MODES.map(([m, l]) => `<button type="button" data-m="${m}" class="${mode === m ? 'on' : ''}" title="${MODE_TIP[m]}">${l}</button>`).join('')}</div>
+        ${mode === 'real' ? `<div class="nmCap">pick Shuffled or Left out: if the score barely moves, the network wasn't really using ${esc(INPUTS[j])}</div>` : ''}
+        ${score ? `<div class="nmRetr">${score}</div>` : ''}</div>${resetAll(cur)}`;
   }
 
   /** P(up) along input j on the call shown, the other inputs as they are now; the real call, the what-if, a pin per preset. */
   function curveSVG(cur, j, presets, H) {
-    const sn = cur.fit.snap, on = !!S.mask[j], sd = sn.sd[j], mu = sn.mu[j], real = cur.row.x[j], now = cur.x[j];
+    const sn = cur.snap, on = !!S.mask[j], sd = sn.sd[j], mu = sn.mu[j], real = cur.row.x[j], now = cur.x[j];
     const xr = Array.from(cur.x); xr[j] = real;
     const pReal = pUp(sn, xr), pins = cur.c ? presets.filter(p => 'v' in p) : [];
     let a = Math.min(mu - 6 * sd, real - 1.5 * sd, now - 1.5 * sd), b = Math.max(mu + 6 * sd, real + 1.5 * sd, now + 1.5 * sd);
@@ -392,7 +433,7 @@ export function createNetPanel(el) {
     const box = svg.parentElement, fill = getComputedStyle(box).flexGrow === '1';   // the wide layout: the curve takes the height left
     const ch = fill ? Math.max(200, Math.floor(box.clientHeight) - 2) : 250;
     if (Math.abs(ch - geo.H) > 3) { S.ch = ch; renderModalBody(); return; }
-    const tip = svg.parentElement.querySelector('.nmTip'), hov = svg.querySelector('[data-hover]'), sn = cur.fit.snap, can = !!cur.c && geo.on;
+    const tip = svg.parentElement.querySelector('.nmTip'), hov = svg.querySelector('[data-hover]'), sn = cur.snap, can = !!cur.c && geo.on;
     const valAt = e => { const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * geo.W; return Math.max(geo.a, Math.min(geo.b, geo.a + (px - geo.L) / (geo.W - geo.L - geo.R) * (geo.b - geo.a))); };
     const setAt = e => { const c = current(); if (!c) return; S.edits[j] = valAt(e); S.preset = null; paint(); };
     svg.onpointerdown = e => { const pin = e.target.closest('.nmPin'); if (pin) { applyPreset(pin.dataset.pin); return; } if (!can) return; S.drag = true; setAt(e); };
@@ -412,10 +453,52 @@ export function createNetPanel(el) {
   // a drag that leaves the curve keeps going until the button is let go
   dlg.addEventListener('pointermove', e => { if (!S.drag || !e.buttons) return; const svg = $('mBody').querySelector('[data-svg]'); if (svg && !svg.contains(e.target)) svg.onpointermove(e); });
 
+  /** The answer strip on top of every pop-up: P(up), the call and the size, real → what-if. */
+  function answerOf(cur) {
+    const { c, row, ex, real: rx } = cur, right = p => (p > 0.5 ? 1 : 0) === row.y;
+    const mk = (cls, p) => `<i class="mk ${cls}" style="left:${(100 * p).toFixed(2)}%"></i>`;
+    return `<div class="nmAnswer">
+        <div><div class="nmKick">P(up)</div><div class="nmBig">${cur.edited ? `<s>${pc1(rx.p)}</s><span class="amberT">${pc1(ex.p)}</span>` : pc1(ex.p)}</div><div class="nmBar"><i class="mid"></i>${mk('real', rx.p)}${cur.edited ? mk('wi', ex.p) : ''}</div><div class="nmScale"><span>0% · down</span><span>50%</span><span>up · 100%</span></div></div>
+        <div><div class="nmKick">Call</div><div class="nmBig">${cur.edited && callOf(ex.p) !== callOf(rx.p) ? `<s>${callOf(rx.p)}</s>` : ''}<span class="${cur.edited ? 'amberT' : ''}">${callOf(ex.p)}</span> <span class="${right(ex.p) ? 'okT' : 'badT'}">${ic(right(ex.p) ? 'check' : 'cross')}</span></div><div class="nmCap">${c ? `market went ${row.y ? 'up' : 'down'} · ${right(ex.p) ? 'right way' : 'wrong way'}` : 'a training forecast, not a call'}</div></div>
+        <div><div class="nmKick">Size</div><div class="nmBig">${cur.edited ? `<s>${pts(rx.size)}</s><span class="amberT">${pts(ex.size)}</span>` : pts(ex.size)}</div><div class="nmCap">points · moved ${pts(row.move)}</div></div></div>`;
+  }
+  /** One plain sentence under the answer: what the call was, and what the edits changed. */
+  function storyOf(cur, t) {
+    const { c, row, ex, real: rx, fit } = cur, went = `the market went <b>${row.y ? 'up' : 'down'}</b>`;
+    const verdict = p => ((p > 0.5 ? 1 : 0) === row.y ? '<span class="okT">right</span>' : '<span class="badT">wrong</span>');
+    const name = t.kind === 'in' ? `<b>${esc(INPUTS[t.j])}</b>` : '';
+    let s;
+    if (!c) s = `This is a training forecast, not a call. Move the call slider to a real call to try changes.`;
+    else if (t.kind === 'in' && !S.mask[t.j]) s = `${name} is left out of this network, so no value changes the answer. Pick <b>Real</b> under step 3 to put it back.`;
+    else if (t.kind === 'in' && (t.j in S.edits) && Object.keys(S.edits).length === 1 && !Object.keys(S.wedits).length) {
+      const flip = callOf(ex.p) !== callOf(rx.p);
+      s = `If ${name} had been <b class="amberT">${f4(ex.inputs[t.j].raw)}</b> instead of ${f4(row.x[t.j])}, the network ${flip ? `would <b>change its mind</b> and say <b class="amberT">${callOf(ex.p)}</b>` : `would still say <b>${callOf(ex.p)}</b>`} (${pc1(rx.p)} → <b class="amberT">${pc1(ex.p)}</b> chance of up), which would have been ${verdict(ex.p)}. <span class="nmFaint">Nothing retrains. Reset puts the real value back.</span>`;
+    } else if (cur.edited) {
+      const list = [...Object.keys(S.edits).map(j => `${esc(INPUTS[j])} at <b class="amberT">${f4(S.edits[j])}</b>`), ...Object.keys(S.wedits).map(k => wWords(k, fit.snap, true))];
+      const flip = callOf(ex.p) !== callOf(rx.p), sizeTo = metricOf(t) === 'size' ? ` The size goes ${pts(rx.size)} → <b class="amberT">${pts(ex.size)}</b> points; the market moved ${pts(row.move)}.` : '';
+      s = `With ${list.join(', ')}, the network ${flip ? `would <b>change its mind</b> and say <b class="amberT">${callOf(ex.p)}</b>` : `would still say <b>${callOf(ex.p)}</b>`} (${pc1(rx.p)} → <b class="amberT">${pc1(ex.p)}</b> chance of up), which would have been ${verdict(ex.p)}.${sizeTo} <span class="nmFaint">Nothing retrains. Reset all puts it back.</span>`;
+    } else if (t.kind === 'in') {
+      s = `On this call ${name} was <b>${f4(row.x[t.j])}</b> and the network said <b>${callOf(rx.p)}</b> (${pc1(rx.p)} chance of up); ${went}, so it was ${verdict(rx.p)}. <span class="nmFaint">What value would have changed its mind? Try one on the left.</span>`;
+    } else if (t.kind === 'hid') {
+      const a = rx.hidden[t.k].a, pOff = pUp(applyW(fit.snap, { [`mute:${t.k}`]: 1 }), row.x), flip = callOf(pOff) !== callOf(rx.p);
+      s = `<b>h${t.k + 1}</b> fired at <b>${a.toFixed(2)}</b> on this call (0 = quiet, 1 = full on). Without it, P(up) would be <b>${pc1(pOff)}</b> instead of ${pc1(rx.p)}: ${flip ? `the call <b>would flip</b> to ${callOf(pOff)}` : `the call stays <b>${callOf(rx.p)}</b>`}. <span class="nmFaint">Turn it off or nudge it on the left to try it.</span>`;
+    } else if (t.kind === 'out' && t.o === 0) {
+      s = `P(up) came out <b>${pc1(rx.p)}</b>, so the network said <b>${callOf(rx.p)}</b>; ${went}, so it was ${verdict(rx.p)}. The bars show how hard each hidden neuron pushed toward up or down. <span class="nmFaint">Turn neurons off on the left to see who decided the call.</span>`;
+    } else if (t.kind === 'out') {
+      s = `The size came out <b>${pts(rx.size)}</b> points; the market moved <b>${pts(row.move)}</b>, a miss of ${Math.abs(rx.size - row.move).toFixed(1)}. The bars show each hidden neuron's push. <span class="nmFaint">Turn neurons off or nudge the bias on the left.</span>`;
+    } else {
+      const key = wKeyOf(t), w = baseOf(fit.snap, key), m = metricOf(t), z = { ...S.wedits, [key]: 0 }, sn0 = applyW(fit.snap, z);
+      const carry = t.layer === 1 ? `carries <b>${esc(INPUTS[t.j])}</b> into h${t.k + 1}` : `carries h${t.k + 1} into <b>${OUT[t.o]}</b>`;
+      const off = m === 'p' ? `Set to 0, P(up) would be <b>${pc1(pUp(sn0, row.x))}</b> instead of ${pc1(rx.p)}${callOf(pUp(sn0, row.x)) !== callOf(rx.p) ? ', <b>flipping the call</b>' : ''}.` : `Set to 0, the size would be <b>${pts(explain(sn0, row.x).size)}</b> instead of ${pts(rx.size)} points (the market moved ${pts(row.move)}).`;
+      s = `This weight is <b>${sf(w)}</b>: it ${carry}. ${off} <span class="nmFaint">Try a value on the left, or drag on the curve.</span>`;
+    }
+    return `<div class="nmStory ${cur.edited ? 'wi' : ''}">${s}</div>`;
+  }
+
   function renderModalBody() {
     const t = S.modal, cur = current(), body = $('mBody');
     const presets = t.kind === 'in' ? presetsFor(cur && cur.c ? cur : null, t.j) : [];
-    if (t.kind === 'in') renderTune(cur, presets);
+    renderTune(cur, presets);
     const meta = [];
     if (cur) {
       const { c, row, fit, fitAt } = cur;
@@ -430,22 +513,19 @@ export function createNetPanel(el) {
       body.querySelector('[data-c="firstCall"]').addEventListener('click', () => { while (!S.done && !S.calls.length) step(); paint(); if (S.modal) { renderModalBody(); } });
       return;
     }
-    const { c, row, ex, real: rx, fit, prev } = cur, sn = fit.snap;
+    const { c, row, ex, real: rx, fit, prev } = cur, sn = cur.snap;
     const cmp = (a, b, fmt = f4) => (a === b || !cur.edited ? fmt(a) : `${fmt(b)} → <b class="amberT">${fmt(a)}</b>`);
     const table = (head, rows) => `<div class="table"><table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
     const outs = `<h3>Outputs on this call</h3><div class="netEq">P(up) = ${cmp(ex.p, rx.p, v => pct(v))} · size = ${cmp(ex.size, rx.size, sgn)} points${c ? ` · it said <b>${ex.p > 0.5 ? 'up' : 'down'}</b>, the market went <b>${row.y ? 'up' : 'down'}</b>` : ''}</div>`;
     let html = '';
 
     if (t.kind === 'in') {
-      const j = t.j, i = ex.inputs[j], sens = ex.sens[j], right = p => (p > 0.5 ? 1 : 0) === row.y;
-      const mk = (cls, p) => `<i class="mk ${cls}" style="left:${(100 * p).toFixed(2)}%"></i>`;
-      html += `<div class="nmAnswer">
-        <div><div class="nmKick">P(up)</div><div class="nmBig">${cur.edited ? `<s>${pc1(rx.p)}</s><span class="amberT">${pc1(ex.p)}</span>` : pc1(ex.p)}</div><div class="nmBar"><i class="mid"></i>${mk('real', rx.p)}${cur.edited ? mk('wi', ex.p) : ''}</div><div class="nmScale"><span>0% · calls down</span><span>50%</span><span>calls up · 100%</span></div></div>
-        <div><div class="nmKick">Call</div><div class="nmBig">${cur.edited && callOf(ex.p) !== callOf(rx.p) ? `<s>${callOf(rx.p)}</s>` : ''}<span class="${cur.edited ? 'amberT' : ''}">${callOf(ex.p)}</span> <span class="${right(ex.p) ? 'okT' : 'badT'}">${ic(right(ex.p) ? 'check' : 'cross')}</span></div><div class="nmCap">${c ? `market went ${row.y ? 'up' : 'down'} · ${right(ex.p) ? 'right way' : 'wrong way'}` : 'a training forecast, not a call'}</div></div>
-        <div><div class="nmKick">Size</div><div class="nmBig">${cur.edited ? `<s>${pts(rx.size)}</s><span class="amberT">${pts(ex.size)}</span>` : pts(ex.size)}</div><div class="nmCap">points · moved ${pts(row.move)}</div></div></div>`;
+      const j = t.j, i = ex.inputs[j], sens = ex.sens[j];
+      html += answerOf(cur);
+      html += storyOf(cur, t);
       const C = curveSVG(cur, j, presets, S.ch || 250);
       html = `<div class="nmCenter">${html}`;
-      html += `<div class="nmBlockHead"><span class="nmKick">P(up) for every value of ${esc(INPUTS[j])}</span><span class="nmLegend"><span><i class="lg real"></i>real call</span><span><i class="lg wi"></i>what-if</span><span><i class="lg pin"></i>preset</span><span><i class="lg flip"></i>flips at 50%</span><span><i class="lg zone"></i>right way</span></span></div>
+      html += `<div class="nmBlockHead"><span class="nmKick">P(up) for every value of ${esc(INPUTS[j])} <em>click or drag on it to try a value</em></span><span class="nmLegend"><span><i class="lg real"></i>real call</span><span><i class="lg wi"></i>what-if</span><span><i class="lg pin"></i>preset</span><span><i class="lg flip"></i>flips at 50%</span><span><i class="lg zone"></i>right way</span></span></div>
         <div class="nmChart">${C.html}</div></div>`;
       const most = ex.hidden.map(hd => [Math.abs(hd.terms[j].wz), hd.k]).sort((p, q) => q[0] - p[0])[0][1];
       const tot = ex.hidden.map(hd => hd.terms.reduce((s, q) => s + Math.abs(q.wz), Math.abs(hd.bias)));
@@ -463,7 +543,7 @@ export function createNetPanel(el) {
           ex.hidden.map(hd => { const d1 = hd.a * (1 - hd.a), g = d1 * sn.W1[hd.k * sn.d + j] * sn.mask[j] / sn.sd[j]; return `<tr><td>h${hd.k + 1}</td><td>${f4(d1)}</td><td>${sf(sn.W1[hd.k * sn.d + j])}</td><td>${sf(sn.W2[hd.k])}</td><td>${sf(sn.W2[sn.h + hd.k])}</td><td>${sf(sn.W2[hd.k] * g)}</td><td>${sf(sn.W2[sn.h + hd.k] * g * sn.msd)}</td></tr>`; }))
           + `<div class="netEq">∂P(up)/∂${esc(INPUTS[j])} = p(1 − p) × Σ = ${f4(ex.p * (1 - ex.p))} × (sum of the column) = <b>${sf(sens.dp)}</b> per unit<br>∂size/∂${esc(INPUTS[j])} = Σ × move spread ${f4(sn.msd)} = <b>${sf(sens.dsize)}</b> points per unit<small>the slope right here: a small change in ${esc(INPUTS[j])} moves P(up) and the size by about this much per unit (the sigmoids bend, so large edits move them less or more)</small></div>`],
       ];
-      html += `<div class="nmMath"><div class="nmBlockHead"><span class="nmKick">The math on this call</span></div>` + steps.map(([title, key, inner], k) => `
+      html += `<div class="nmMath"><div class="nmBlockHead"><span class="nmKick">The math on this call <em>optional · for checking the numbers</em></span></div>` + steps.map(([title, key, inner], k) => `
         <div class="nmStep ${S.open === k + 1 ? 'open' : ''}"><button type="button" data-o="${k + 1}" aria-expanded="${S.open === k + 1}"><span class="n">${k + 1}</span><span class="t">${title}</span><span class="k">${key}</span>${ic('chev')}</button>${S.open === k + 1 ? `<div class="nmStepBody">${inner}</div>` : ''}</div>`).join('') + '</div>';
       const keep = body.scrollTop;
       body.innerHTML = html;
@@ -496,19 +576,215 @@ export function createNetPanel(el) {
       }
       html += '</div></div>';
     } else {
-      const now = t.layer === 1 ? sn.W1[t.k * sn.d + t.j] : sn.W2[t.o * sn.h + t.k];
+      const now = t.layer === 1 ? fit.snap.W1[t.k * sn.d + t.j] : fit.snap.W2[t.o * sn.h + t.k];   // as training set it: the what-if is in the tools
       const before = prev ? (t.layer === 1 ? prev.snap.W1[t.k * sn.d + t.j] : prev.snap.W2[t.o * sn.h + t.k]) : null;
-      html += `<h3>1 · The weight</h3><div class="netEq">w = <b>${sf(now)}</b>${before == null ? ' · first fit: it started from a seeded random draw' : ` · after the fit before (${prev.upTo} forecasts) it was ${sf(before)} · this fit moved it by <b>${sf(now - before)}</b>`}</div>`;
+      html += `<h3>1 · The weight</h3><div class="netEq">w = <b>${sf(now)}</b>${wKeyOf(t) in S.wedits ? ` (what-if: <b class="amberT">${sf(S.wedits[wKeyOf(t)])}</b>)` : ''}${before == null ? ' · first fit: it started from a seeded random draw' : ` · after the fit before (${prev.upTo} forecasts) it was ${sf(before)} · this fit moved it by <b>${sf(now - before)}</b>`}</div>`;
       if (t.layer === 1) {
         const i = ex.inputs[t.j], hd = ex.hidden[t.k];
-        html += `<h3>2 · On this call</h3><div class="netEq">z(${esc(INPUTS[t.j])}) = ${f4(i.z)}${i.on ? '' : ' (left out)'} · w · z = <b>${sf(now * i.z)}</b> of h${t.k + 1}'s sum ${f4(hd.sum)} → a = ${f4(hd.a)}</div>`;
+        html += `<h3>2 · On this call</h3><div class="netEq">z(${esc(INPUTS[t.j])}) = ${f4(i.z)}${i.on ? '' : ' (left out)'} · w · z = <b>${sf(hd.terms[t.j].wz)}</b> of h${t.k + 1}'s sum ${f4(hd.sum)} → a = ${f4(hd.a)}</div>`;
       } else {
         const hd = ex.hidden[t.k], o = ex.outputs[t.o];
-        html += `<h3>2 · On this call</h3><div class="netEq">a(h${t.k + 1}) = ${f4(hd.a)} · a × w = <b>${sf(now * hd.a)}</b> of ${OUT[t.o]}'s sum ${f4(o.sum)}</div>`;
+        html += `<h3>2 · On this call</h3><div class="netEq">a(h${t.k + 1}) = ${f4(hd.a)} · a × w = <b>${sf(o.terms[t.k].wa)}</b> of ${OUT[t.o]}'s sum ${f4(o.sum)}</div>`;
       }
       html += outs;
     }
-    body.innerHTML = html;
+    const keep = body.scrollTop, W = centerW(cur, t);
+    body.innerHTML = `<div class="nmCenter">${answerOf(cur)}${storyOf(cur, t)}${W.html}</div><div class="nmMath"><div class="nmBlockHead"><span class="nmKick">The math on this call <em>optional · for checking the numbers</em></span></div>${html}</div>`;
+    body.scrollTop = keep;
+    if (W.geo) wireSweep(cur, t, W.geo);
+  }
+  // ------------------------------------------------------------ the hidden neuron, output and weight pop-ups
+  const wKeyOf = t => (t.kind === 'hid' ? `b1:${t.k}` : t.kind === 'out' ? `b2:${t.o}` : t.layer === 1 ? `W1:${t.k * D + t.j}` : `W2:${t.o * HN + t.k}`);
+  const metricOf = t => ((t.kind === 'out' && t.o === 1) || (t.kind === 'edge' && t.layer === 2 && t.o === 1) ? 'size' : 'p');
+  const resetAll = cur => (cur && cur.edited ? `<button type="button" class="nmLink nmResetAll" data-c="resetAll">${ic('reset')} Reset all changes</button>` : '');
+  function goTo(s) {
+    const [kind, a, b] = s.split(':').map((v, i) => (i ? +v : v));
+    open(kind === 'in' ? { kind, j: a } : kind === 'hid' ? { kind, k: a } : kind === 'out' ? { kind, o: a } : kind === 'e1' ? { kind: 'edge', layer: 1, k: a, j: b } : { kind: 'edge', layer: 2, o: a, k: b });
+  }
+  const valBox = (title, hint) => `<div class="nmGrp"><div class="nmKick">${ic('sliders')} ${title} <em>${hint}</em></div>
+    <div class="nmVal" data-c="box"><button type="button" data-c="dn" aria-label="Lower">−</button><input type="number" step="any" data-c="val" aria-label="${title}"><button type="button" data-c="up" aria-label="Higher">+</button></div>
+    <div class="nmValMeta"><span data-c="real"></span><button type="button" class="nmLink" data-c="resetVal">${ic('reset')} Reset</button></div></div>`;
+  /** The left column's fixed parts for a neuron, an output or a weight (built once per open, so typing keeps focus). */
+  function renderCtlW(t) {
+    const ctl = $('mCtl'), key = wKeyOf(t), step = t.kind === 'edge' ? 0.1 : 0.25;
+    ctl.innerHTML = t.kind === 'hid'
+      ? `<div class="nmGrp"><div class="nmKick">${ic('flip')} 1 · Turn it on or off <em>off: it adds nothing to the outputs</em></div>
+          <div class="seg nmSeg" data-c="mute"><button type="button" data-w="mute:${t.k}" data-on="1">On</button><button type="button" data-w="mute:${t.k}" data-on="0">Off</button></div></div>
+        ${valBox('2 · Nudge its bias', 'higher: it fires more on every call')}<div data-c="dyn" class="nmDyn"></div>`
+      : t.kind === 'out'
+        ? `<div data-c="dyn" class="nmDyn"></div>${valBox('2 · Nudge its bias', t.o === 0 ? 'higher: leans every call toward up' : 'higher: every size goes up')}<div data-c="dyn2" class="nmDyn"></div>`
+        : `${valBox('1 · Try a weight', 'type it, use − +, or click the curve')}
+          <div class="nmQuick"><button type="button" class="btn sm" data-wz>Set to 0</button><button type="button" class="btn sm" data-wf>Flip its sign</button></div>
+          <div data-c="dyn" class="nmDyn"></div>`;
+    const val = ctl.querySelector('[data-c="val"]');
+    val.addEventListener('input', () => { const v = Number(val.value); if (val.value.trim() !== '') setW(key, v); });
+    for (const [k, sgnK] of [['dn', -1], ['up', 1]]) ctl.querySelector(`[data-c="${k}"]`).addEventListener('click', () => { const c = current(); if (c) setW(key, valueNow(c.fit.snap, key) + sgnK * step); });
+    ctl.querySelector('[data-c="resetVal"]').addEventListener('click', () => { delete S.wedits[key]; paint(); });
+  }
+  /** Where a weight has to be for the flip (P(up)) or to match the market's move (size): the value nearest the real one. */
+  function solveW(cur, t) {
+    const key = wKeyOf(t), m = metricOf(t), sn = cur.fit.snap, b = baseOf(sn, key), x = cur.x;
+    const f = v => { const n = applyW(sn, { ...S.wedits, [key]: v }); return m === 'p' ? pUp(n, x) : explain(n, x).size; };
+    const from = f(b), target = m === 'p' ? (from > 0.5 ? 0.495 : 0.505) : cur.row.move;
+    const N = 600, lo = b - 30, w = 60 / N, g = v => f(v) - target;
+    let best = null, pv = lo, pf = g(lo);
+    for (let i = 1; i <= N; i++) {
+      const v = lo + i * w, fv = g(v);
+      if ((pf < 0) !== (fv < 0)) {
+        let l = pv, r = v, fl = pf;
+        for (let k = 0; k < 50; k++) { const mm = (l + r) / 2, fm = g(mm); if ((fm < 0) === (fl < 0)) { l = mm; fl = fm; } else r = mm; }
+        const root = (l + r) / 2;
+        if (best === null || Math.abs(root - b) < Math.abs(best - b)) best = root;
+      }
+      pv = v; pf = fv;
+    }
+    return { key, m, f, from, target, v: best, label: m === 'p' ? 'Flip the call' : `Match the market's move`, sub: m === 'p' ? `→ ${callOf(1 - from)} · ${(from > 0.5 ? 0 : 1) === cur.row.y ? 'makes it right' : 'makes it wrong'}` : `size ${pts(target)} points` };
+  }
+  /** The left column's moving parts for a neuron, an output or a weight. */
+  function renderTuneW(cur, t) {
+    const ctl = $('mCtl'), key = wKeyOf(t), dyn = ctl.querySelector('[data-c="dyn"]'), val = ctl.querySelector('[data-c="val"]');
+    if (!dyn || !val) return;
+    const can = !!(cur && cur.c), edited = key in S.wedits, sn = cur && cur.fit.snap;
+    ctl.querySelector('[data-c="box"]').classList.toggle('edited', edited);
+    val.disabled = !can; ctl.querySelector('[data-c="dn"]').disabled = ctl.querySelector('[data-c="up"]').disabled = !can;
+    if (cur && document.activeElement !== val) val.value = String(+valueNow(sn, key).toFixed(4));
+    ctl.querySelector('[data-c="resetVal"]').disabled = !edited;
+    ctl.querySelector('[data-c="real"]').textContent = cur ? `real ${sf(baseOf(sn, key))}${edited ? ` · changed by ${sf(S.wedits[key] - baseOf(sn, key))}` : ''}` : '';
+    ctl.querySelectorAll('[data-wz],[data-wf],[data-w]').forEach(b => { b.disabled = !can; });
+    const why = !cur ? 'train until there is a call' : !cur.c ? 'changes work on calls: move the call slider' : '';
+    if (t.kind === 'hid') {
+      const off = `mute:${t.k}` in S.wedits;
+      ctl.querySelectorAll('[data-c="mute"] button').forEach(b => b.classList.toggle('on', (b.dataset.on === '0') === off));
+      const rows = !can ? '' : Array.from({ length: HN }, (_, k) => {
+        const muted = `mute:${k}` in S.wedits, p = muted ? cur.ex.p : pUp(applyW(sn, { ...S.wedits, [`mute:${k}`]: 1 }), cur.x);
+        const d = (p - cur.ex.p) * 100, flip = callOf(p) !== callOf(cur.ex.p);
+        return { k, muted, p, d, flip };
+      }).sort((u, v) => Math.abs(v.d) - Math.abs(u.d)).map(r => `<button type="button" class="nmPreset ${r.k === t.k ? 'on' : ''}" data-go="hid:${r.k}">${ic('target')}<span class="nmPl">h${r.k + 1}${r.k === t.k ? ' · this one' : ''}<i>${r.muted ? 'already off' : `without it: P(up) ${pc1(r.p)}${r.flip ? ' · <span class="amberT">flips the call</span>' : ''}`}</i></span><span class="nmPr">${r.muted ? '' : `<b>${r.d >= 0 ? '+' : '−'}${Math.abs(r.d).toFixed(1)}</b> pts`}</span></button>`).join('');
+      dyn.innerHTML = `<div class="nmGrp"><div class="nmKick">${ic('target')} 3 · Which neurons matter <em>${why || 'P(up) with each one off · click to open it'}</em></div><div class="nmPresets">${rows}</div></div>${resetAll(cur)}`;
+    } else if (t.kind === 'out') {
+      const rows = !can ? '' : cur.real.outputs[t.o].terms.map(q => ({ k: q.k, wa: q.wa, muted: `mute:${q.k}` in S.wedits }))
+        .sort((u, v) => Math.abs(v.wa) - Math.abs(u.wa))
+        .map(r => `<button type="button" class="nmPreset ${r.muted ? 'on' : ''}" data-w="mute:${r.k}">${ic('flip')}<span class="nmPl">h${r.k + 1}<i>${r.muted ? 'turned off · click to turn back on' : `pushes ${t.o === 0 ? (r.wa >= 0 ? 'toward up' : 'toward down') : (r.wa >= 0 ? 'the size up' : 'the size down')}`}</i></span><span class="nmPr"><b>${sf(r.wa)}</b><br>${r.muted ? '<span class="amberT">off</span>' : 'on'}</span></button>`).join('');
+      dyn.innerHTML = `<div class="nmGrp"><div class="nmKick">${ic('flip')} 1 · Turn neurons off <em>${why || 'biggest push first · click to turn one off'}</em></div><div class="nmPresets">${rows}</div>
+        ${can && t.o === 0 ? `<div class="nmQuick"><button type="button" class="btn sm" data-c="fewest">Flip the call with the fewest turned off</button></div>` : ''}</div>`;
+      ctl.querySelector('[data-c="dyn2"]').innerHTML = resetAll(cur);
+    } else {
+      const sol = can ? solveW(cur, t) : null, prev = cur && cur.prev, before = prev ? baseOf(prev.snap, key) : null, now = sn ? baseOf(sn, key) : 0;
+      const on = sol && sol.v != null && S.wedits[key] === sol.v;
+      const row = !sol ? '' : `<button type="button" class="nmPreset ${on ? 'on' : ''}" data-wp ${sol.v == null ? 'disabled' : ''}>${ic(sol.m === 'p' ? 'flip' : 'target')}<span class="nmPl">${sol.label}<i>${sol.v == null ? 'this weight alone cannot get there' : sol.sub}</i></span><span class="nmPr">${sol.v == null ? '<span class="badT">out of reach</span>' : `<b>${sf(sol.v)}</b><br>${sf(sol.v - now)} from real`}</span></button>`;
+      dyn.innerHTML = `<div class="nmGrp"><div class="nmKick">${ic('target')} 2 · Or jump to an answer <em>${why || 'the weight that gets it there · ◇ on the curve'}</em></div><div class="nmPresets">${row}</div></div>
+        <div class="nmGrp"><div class="nmKick">${ic('shuffle')} How training set it</div><div class="nmCap">${!cur ? '' : before == null ? 'first fit: it started from a seeded random draw' : `before this fit (${prev.upTo} forecasts) it was ${sf(before)}; training moved it ${sf(now - before)}`}</div></div>${resetAll(cur)}`;
+    }
+  }
+  function clickW(e) {
+    const t = S.modal, cur = current(), w = e.target.closest('[data-w]'), go = e.target.closest('[data-go]');
+    if (go) { goTo(go.dataset.go); return; }
+    if (!cur || !cur.c) return;
+    const key = wKeyOf(t);
+    if (w && !w.disabled) {
+      const k = w.dataset.w, on = w.dataset.on;
+      if (on === '1' || (on == null && k in S.wedits)) delete S.wedits[k]; else S.wedits[k] = 1;
+      paint();
+    }
+    if (e.target.closest('[data-wz]')) setW(key, 0);
+    if (e.target.closest('[data-wf]')) setW(key, -valueNow(cur.fit.snap, key));
+    const p = e.target.closest('[data-wp]');
+    if (p && !p.disabled) { const sol = solveW(cur, t); if (sol.v != null) setW(key, sol.v); }
+    if (e.target.closest('[data-c="fewest"]')) {
+      const up = cur.ex.p > 0.5, order = cur.ex.outputs[0].terms.filter(q => (q.wa > 0) === up && !(`mute:${q.k}` in S.wedits)).sort((a, b) => Math.abs(b.wa) - Math.abs(a.wa));
+      for (const q of order) { S.wedits[`mute:${q.k}`] = 1; if ((pUp(applyW(cur.fit.snap), cur.x) > 0.5) !== up) break; }
+      paint();
+    }
+  }
+  $('mBody').addEventListener('click', e => {
+    if (!S.modal || S.modal.kind === 'in') return;
+    const go = e.target.closest('[data-go]');
+    if (go) goTo(go.dataset.go);
+  });
+
+  /** The middle column: bars for a neuron or an output, a curve for a weight. */
+  function centerW(cur, t) {
+    const { ex, real: rx } = cur;
+    const bars = (rows, cap) => {
+      const max = Math.max(1e-9, ...rows.map(r => Math.abs(r.v)));
+      return rows.map(r => { const w = 50 * Math.abs(r.v) / max; return `<div class="nmBarRow ${r.cls || ''}" ${r.go ? `data-go="${r.go}"` : ''} title="${r.tip || ''}"><span class="nm">${r.name}${r.cls && r.cls.includes('muted') ? ' · off' : ''}</span><span class="tr"><i class="${r.v >= 0 ? 'pos' : 'neg'}" style="left:${r.v >= 0 ? 50 : 50 - w}%;width:${w}%"></i></span><span class="v">${sf(r.v)}</span></div>`; }).join('') + (cap ? `<p class="nmCap">${cap}</p>` : '');
+    };
+    if (t.kind === 'hid') {
+      const hd = ex.hidden[t.k];
+      const feed = hd.terms.map(q => ({ name: esc(INPUTS[q.j]), v: q.wz, go: `e1:${t.k}:${q.j}`, cls: q.j in S.edits || `W1:${t.k * D + q.j}` in S.wedits ? 'ed' : '', tip: 'click for this weight' }))
+        .sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).concat({ name: 'bias', v: hd.bias, cls: `b1:${t.k}` in S.wedits ? 'bias ed' : 'bias' });
+      const off = `mute:${t.k}` in S.wedits;
+      const outR = rx.outputs.map((o, oi) => ({ name: `→ ${OUT[oi]}`, v: off ? o.terms[t.k].wa : ex.outputs[oi].terms[t.k].wa, go: `e2:${oi}:${t.k}`, cls: off ? 'muted' : '', tip: 'click for this weight' }));
+      return { html: `<div class="nmChart nmBars">
+        <div class="nmBlockHead"><span class="nmKick">What feeds h${t.k + 1} <em>each input's push on its sum · biggest first · click a row for its weight</em></span></div>
+        ${bars(feed, `sum ${f4(hd.sum)} → fires at <b>${hd.a.toFixed(2)}</b> (0 = quiet, 1 = full on)`)}
+        <div class="nmBlockHead"><span class="nmKick">Where it goes <em>${off ? 'turned off: these pushes are gone' : 'its push on each output'}</em></span></div>
+        ${bars(outR)}</div>` };
+    }
+    if (t.kind === 'out') {
+      const o = t.o, rows = rx.outputs[o].terms.map(q => {
+        const muted = `mute:${q.k}` in S.wedits;
+        return { name: `h${q.k + 1}`, v: muted ? q.wa : ex.outputs[o].terms[q.k].wa, go: `hid:${q.k}`, cls: muted ? 'muted' : `W2:${o * HN + q.k}` in S.wedits ? 'ed' : '', tip: 'click to open this neuron' };
+      }).sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).concat({ name: 'bias', v: ex.outputs[o].bias, cls: `b2:${o}` in S.wedits ? 'bias ed' : 'bias' });
+      return { html: `<div class="nmChart nmBars">
+        <div class="nmBlockHead"><span class="nmKick">What pushes ${OUT[o]} <em>${o === 0 ? 'right: toward up · left: toward down' : 'right: bigger · left: smaller'} · click a row to open that neuron</em></span></div>
+        ${bars(rows, `sum ${f4(ex.outputs[o].sum)} → ${o === 0 ? `P(up) <b>${pc1(ex.p)}</b>, calls <b>${callOf(ex.p)}</b>` : `size <b>${pts(ex.size)}</b> points (sum × move spread ${f4(ex.msd)})`}`)}</div>` };
+    }
+    const C = sweepSVG(cur, t, S.ch || 250);
+    const m = metricOf(t);
+    return { html: `<div class="nmBlockHead"><span class="nmKick">${m === 'p' ? 'P(up)' : 'The size'} for every value of this weight <em>click or drag on it to try a value</em></span><span class="nmLegend"><span><i class="lg real"></i>real</span><span><i class="lg wi"></i>what-if</span><span><i class="lg pin"></i>${m === 'p' ? 'flip' : 'match'}</span><span><i class="lg flip"></i>${m === 'p' ? 'flips at 50%' : "market's move"}</span>${m === 'p' ? '<span><i class="lg zone"></i>right way</span>' : ''}</span></div>
+      <div class="nmChart">${C.html}</div>`, geo: C.geo };
+  }
+  function sweepSVG(cur, t, H) {
+    const key = wKeyOf(t), m = metricOf(t), sn = cur.fit.snap, base = baseOf(sn, key), now = valueNow(sn, key), row = cur.row;
+    const f = v => { const n = applyW(sn, { ...S.wedits, [key]: v }); return m === 'p' ? pUp(n, cur.x) : explain(n, cur.x).size; };
+    const sol = cur.c ? solveW(cur, t) : null, span = Math.max(1.5, 3 * Math.abs(base));
+    let a = Math.min(base - span, now - 0.5), b = Math.max(base + span, now + 0.5);
+    if (sol && sol.v != null && Math.abs(sol.v - base) < 8 * span) { a = Math.min(a, sol.v - 0.3); b = Math.max(b, sol.v + 0.3); }
+    const Wd = Math.max(320, Math.round(S.cw || 760)), L = 50, R = 12, TP = 14, B = 26;
+    const vals = []; for (let k = 0; k <= 240; k++) { const v = a + (b - a) * k / 240; vals.push([v, f(v)]); }
+    let lo = 0, hi = 1;
+    if (m === 'size') { lo = Math.min(0, row.move, ...vals.map(q => q[1])); hi = Math.max(0, row.move, ...vals.map(q => q[1])); const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad; }
+    const xs = v => L + (v - a) / (b - a) * (Wd - L - R), ys = y => TP + (hi - y) / (hi - lo) * (H - TP - B);
+    const s0 = Math.pow(10, Math.floor(Math.log10((b - a) / 5))), st = [1, 2, 5, 10].map(k => k * s0).find(q => (b - a) / q <= 7);
+    const ticks = []; for (let v = Math.ceil(a / st) * st; v <= b + 1e-9; v += st) ticks.push(v);
+    const yt = m === 'p' ? [0, 0.25, 0.5, 0.75, 1] : [0, 1, 2, 3, 4].map(k => lo + (hi - lo) * k / 4);
+    const txt = (x, y, s, anchor, cls = '') => `<text x="${x}" y="${y}" text-anchor="${anchor}" class="nmAx ${cls}">${s}</text>`;
+    const zone = row.y ? [0.5, 1] : [0, 0.5], edited = key in S.wedits, yb = f(base), yn = f(now);
+    const mark = m === 'p' ? ys(0.5) : ys(row.move);
+    const html = `<svg class="nmCurve" viewBox="0 0 ${Wd} ${H}" style="height:${H}px" data-svg role="img" aria-label="${m === 'p' ? 'P(up)' : 'size'} for every value of this weight">
+      ${m === 'p' ? `<rect x="${L}" y="${ys(zone[1])}" width="${Wd - L - R}" height="${ys(zone[0]) - ys(zone[1])}" class="nmZone"/>` : ''}
+      ${yt.map(y => `<line x1="${L}" x2="${Wd - R}" y1="${ys(y)}" y2="${ys(y)}" class="nmGrid"/>${txt(L - 7, ys(y) + 3.5, m === 'p' ? `${y * 100}%` : pts(y).replace('+', ''), 'end')}`).join('')}
+      <line x1="${L}" x2="${Wd - R}" y1="${mark}" y2="${mark}" class="nmFlip"/>${m === 'size' ? txt(Wd - R - 4, mark - 5, `market ${pts(row.move)}`, 'end', 'mid') : ''}
+      ${ticks.map(v => `<line x1="${xs(v)}" x2="${xs(v)}" y1="${H - B}" y2="${H - B + 4}" class="nmTick"/>${txt(xs(v), H - B + 16, String(+v.toFixed(4)).replace('-', '−'), 'middle')}`).join('')}
+      <polyline points="${vals.map(([v, y]) => `${xs(v).toFixed(1)},${ys(y).toFixed(1)}`).join(' ')}" class="nmLine"/>
+      <line x1="${xs(base)}" x2="${xs(base)}" y1="${TP}" y2="${H - B}" class="nmRealLine"/>
+      ${sol && sol.v != null && sol.v >= a && sol.v <= b ? `<g class="nmPin ${S.wedits[key] === sol.v ? 'on' : ''}" data-pin="w"><title>${sol.label}: ${sf(sol.v)}</title><circle cx="${xs(sol.v)}" cy="${ys(sol.target)}" r="11" fill="transparent"/><path d="M${xs(sol.v)} ${ys(sol.target) - 5.5} L${xs(sol.v) + 5.5} ${ys(sol.target)} L${xs(sol.v)} ${ys(sol.target) + 5.5} L${xs(sol.v) - 5.5} ${ys(sol.target)} Z"/></g>` : ''}
+      <circle cx="${xs(base)}" cy="${ys(yb)}" r="5" class="nmReal"/>
+      ${edited ? `<line x1="${xs(now)}" x2="${xs(now)}" y1="${TP}" y2="${H - B}" class="nmWiLine"/><circle cx="${xs(now)}" cy="${ys(yn)}" r="6" class="nmWi"/>` : ''}
+      <g data-hover style="display:none;pointer-events:none"><line y1="${TP}" y2="${H - B}" class="nmHovLine"/><circle r="4.5" class="nmHovDot"/></g>
+    </svg><div class="nmTip" hidden></div>`;
+    return { html, geo: { a, b, W: Wd, H, L, R, xs, ys, f, m, key, sol } };
+  }
+  function wireSweep(cur, t, geo) {
+    const svg = $('mBody').querySelector('[data-svg]'); if (!svg) return;
+    const cw = svg.clientWidth; if (cw && Math.abs(cw - geo.W) > 2) { S.cw = cw; renderModalBody(); return; }
+    const box = svg.parentElement, fillH = getComputedStyle(box).flexGrow === '1';
+    const ch = fillH ? Math.max(200, Math.floor(box.clientHeight) - 2) : 250;
+    if (Math.abs(ch - geo.H) > 3) { S.ch = ch; renderModalBody(); return; }
+    const tip = box.querySelector('.nmTip'), hov = svg.querySelector('[data-hover]'), can = !!cur.c;
+    const valAt = e => { const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * geo.W; return Math.max(geo.a, Math.min(geo.b, geo.a + (px - geo.L) / (geo.W - geo.L - geo.R) * (geo.b - geo.a))); };
+    svg.onpointerdown = e => { if (!can) return; if (e.target.closest('.nmPin') && geo.sol) { setW(geo.key, geo.sol.v); return; } S.drag = true; setW(geo.key, valAt(e)); };
+    svg.onpointermove = e => {
+      if (S.drag && e.buttons && can) { setW(geo.key, valAt(e)); return; }
+      const v = valAt(e), y = geo.f(v), x = geo.xs(v), yy = geo.ys(y);
+      hov.style.display = ''; const ln = hov.querySelector('line'), dt = hov.querySelector('circle');
+      ln.setAttribute('x1', x); ln.setAttribute('x2', x); dt.setAttribute('cx', x); dt.setAttribute('cy', yy);
+      tip.hidden = false; tip.style.left = `${x / geo.W * svg.clientWidth}px`; tip.style.top = `${yy / geo.H * svg.clientHeight}px`;
+      const right = (y > 0.5 ? 1 : 0) === cur.row.y;
+      tip.innerHTML = `weight <b>${sf(v)}</b> · ${geo.m === 'p' ? `P(up) <b>${pc1(y)}</b> · calls <b>${callOf(y)}</b> <span class="${right ? 'okT' : 'badT'}">${right ? '✓' : '✗'}</span>` : `size <b>${pts(y)}</b> points`}<br><span class="nmFaint">${can ? 'click or drag to try it' : 'changes work on calls'}</span>`;
+    };
+    svg.onpointerleave = () => { hov.style.display = 'none'; tip.hidden = true; };
   }
 
   // ------------------------------------------------------------ controls
@@ -517,10 +793,10 @@ export function createNetPanel(el) {
   $('end').addEventListener('click', () => { pause(); $('end').textContent = 'Training…'; setTimeout(() => { finish(); $('end').textContent = 'To the end'; paint(); }, 20); });
   $('reset').addEventListener('click', reset);
   $('speed').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (!b) return; S.speed = +b.dataset.s; for (const x of $('speed').children) x.classList.toggle('on', x === b); });
-  $('scrub').addEventListener('input', e => { const v = +e.target.value; S.pick = v >= S.calls.length - 1 ? null : v; S.edits = {}; S.preset = null; paint(); });
+  $('scrub').addEventListener('input', e => { const v = +e.target.value; S.pick = v >= S.calls.length - 1 ? null : v; S.edits = {}; S.wedits = {}; S.preset = null; paint(); });
   el.addEventListener('click', e => {
     const a = e.target.closest('[data-a]'); if (!a) return;
-    if (a.dataset.a === 'clearEdits') { S.edits = {}; S.preset = null; paint(); }
+    if (a.dataset.a === 'clearEdits') { S.edits = {}; S.wedits = {}; S.preset = null; paint(); }
     if (a.dataset.a === 'restore') { S.mask = INPUTS.map(() => 1); S.tweak = {}; reset(); }
   });
   window.addEventListener('resize', () => drawLoss());
@@ -540,7 +816,7 @@ export function createNetPanel(el) {
       if (variant()) { S.mask = INPUTS.map(() => 1); S.tweak = {}; reset(); }
       finish();
       S.pick = k == null || k >= S.calls.length - 1 ? null : Math.max(0, k);
-      S.edits = {}; S.preset = null;
+      S.edits = {}; S.wedits = {}; S.preset = null;
       paint();
     },
   };
