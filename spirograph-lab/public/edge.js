@@ -321,7 +321,7 @@ export function createEdgeView(el, { netPanel, wire, regrade }) {
     if (!wire.open) wire.showModal();
     netPanel.showCall(k);
     const r = S.T[k == null ? S.N - 1 : k];
-    wire.querySelector('[data-w="sub"]').textContent = r ? `call ${(k == null ? S.N - 1 : k) + 1} of ${S.N} · ${when(r.at)} · drag the call slider or click any node or line` : '';
+    wire.querySelector('[data-w="sub"]').textContent = r ? `call ${(k == null ? S.N - 1 : k) + 1} of ${S.N} · ${when(r.at)} · drag the call slider · click any node or line for its math` : '';
   }
   el.addEventListener('click', e => {
     const a = e.target.closest('[data-act], [data-e="wire"], .edTog, .edCaller, text[data-k]');
@@ -351,9 +351,17 @@ export function createEdgeView(el, { netPanel, wire, regrade }) {
   });
   el.addEventListener('pointerout', e => { if (e.target.closest('.edTape') && !e.relatedTarget?.closest?.('.edTape')) hideTip(); });
 
+  // in the pop-up, the network's long note moves behind an "About the inputs" button in the header, so nothing scrolls
+  // (a copy: net.js keeps writing to the original, which the pop-up hides)
+  const about = wire.querySelector('[data-w="about"]'), aboutBox = wire.querySelector('[data-w="aboutBox"]');
+  about.addEventListener('click', () => {
+    const note = wire.querySelector('[data-n="note"]');
+    if (aboutBox.hidden) aboutBox.innerHTML = `<p class="note">${note ? note.innerHTML : ''}</p>`;
+    aboutBox.hidden = !aboutBox.hidden; about.setAttribute('aria-expanded', String(!aboutBox.hidden));
+  });
   wire.querySelector('[data-w="close"]').addEventListener('click', () => wire.close());
   wire.addEventListener('click', e => { if (e.target === wire) wire.close(); });
-  wire.addEventListener('close', () => netPanel.stop());
+  wire.addEventListener('close', () => { netPanel.stop(); aboutBox.hidden = true; about.setAttribute('aria-expanded', 'false'); });
 
   function stop() {
     if (S.reveal != null) { clearTimeout(S.timer); S.job++; S.reveal = null; if (S.g) { panel(); race(); } }

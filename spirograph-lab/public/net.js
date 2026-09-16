@@ -66,6 +66,8 @@ export function createNetPanel(el) {
       <div class="nmBody"><div class="nmTune" data-n="mCtl"></div><div class="netModalBody nmMain" data-n="mBody"></div></div>
     </dialog>`;
 
+  const note = $('note');   // held now: the Edge check's pop-up moves it out of `el` into its header (edge.js)
+
   // ------------------------------------------------------------ the diagram
   const svg = $('svg');
   const nodes = { in: INPUTS.map((_, k) => ({ x: XI, y: yAt(k, INPUTS.length) })), hid: Array.from({ length: NET.hidden }, (_, k) => ({ x: XH, y: yAt(k, NET.hidden) })), out: [{ x: XO, y: yAt(0, 2) - 40 }, { x: XO, y: yAt(1, 2) + 40 }] };
@@ -201,7 +203,7 @@ export function createNetPanel(el) {
     }
     drawLoss();
     const every = Math.max(1, Math.ceil(Math.max(0, n - WARM) / NET.maxFits));
-    $('note').innerHTML = `Inputs: the six circles' signed sizes, the fit's explained share and miss, the pen's 3-hour and first-hour move, and the time the pen was frozen (as a point on the 24-hour clock from 6 pm). Each call uses only forecasts before it: the network retrains every ${every} forecast${every > 1 ? 's' : ''}, starting from its last weights. Seeded, so every run of this grade trains the same network, here and on the server. With about ${int(INPUTS.length * NET.hidden + NET.hidden * 3 + 2)} weights and ${n} forecasts it can memorise the past easily: a falling loss is not an edge, only the calls are. Click any node or line to see its math on the call shown.`;
+    note.innerHTML = `Inputs: the six circles' signed sizes, the fit's explained share and miss, the pen's 3-hour and first-hour move, and the time the pen was frozen (as a point on the 24-hour clock from 6 pm). Each call uses only forecasts before it: the network retrains every ${every} forecast${every > 1 ? 's' : ''}, starting from its last weights. Seeded, so every run of this grade trains the same network, here and on the server. With about ${int(INPUTS.length * NET.hidden + NET.hidden * 3 + 2)} weights and ${n} forecasts it can memorise the past easily: a falling loss is not an edge, only the calls are. Click any node or line to see its math on the call shown.`;
     if (S.modal) renderModalBody();
   }
   function fill(v, a, text) {
@@ -249,7 +251,7 @@ export function createNetPanel(el) {
   dlg.addEventListener('click', e => { if (e.target === dlg) close(); });   // the backdrop
   $('mClose').addEventListener('click', close);
   window.addEventListener('pointerup', () => { S.drag = false; });
-  window.addEventListener('resize', () => { if (S.modal && S.modal.kind === 'in') { S.cw = 0; renderModalBody(); } });
+  window.addEventListener('resize', () => { if (S.modal && S.modal.kind === 'in') { S.cw = 0; S.ch = 0; renderModalBody(); } });
 
   /** The value box: built once per open, so typing keeps focus while everything else redraws. Presets and retrain go in `dyn`. */
   function renderModalCtl() {
@@ -387,6 +389,9 @@ export function createNetPanel(el) {
   function wireCurve(cur, j, geo) {
     const svg = $('mBody').querySelector('[data-svg]'); if (!svg) return;
     const cw = svg.clientWidth; if (cw && Math.abs(cw - geo.W) > 2) { S.cw = cw; renderModalBody(); return; }
+    const box = svg.parentElement, fill = getComputedStyle(box).flexGrow === '1';   // the wide layout: the curve takes the height left
+    const ch = fill ? Math.max(200, Math.floor(box.clientHeight) - 2) : 250;
+    if (Math.abs(ch - geo.H) > 3) { S.ch = ch; renderModalBody(); return; }
     const tip = svg.parentElement.querySelector('.nmTip'), hov = svg.querySelector('[data-hover]'), sn = cur.fit.snap, can = !!cur.c && geo.on;
     const valAt = e => { const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * geo.W; return Math.max(geo.a, Math.min(geo.b, geo.a + (px - geo.L) / (geo.W - geo.L - geo.R) * (geo.b - geo.a))); };
     const setAt = e => { const c = current(); if (!c) return; S.edits[j] = valAt(e); S.preset = null; paint(); };
@@ -438,9 +443,10 @@ export function createNetPanel(el) {
         <div><div class="nmKick">P(up)</div><div class="nmBig">${cur.edited ? `<s>${pc1(rx.p)}</s><span class="amberT">${pc1(ex.p)}</span>` : pc1(ex.p)}</div><div class="nmBar"><i class="mid"></i>${mk('real', rx.p)}${cur.edited ? mk('wi', ex.p) : ''}</div><div class="nmScale"><span>0% · calls down</span><span>50%</span><span>calls up · 100%</span></div></div>
         <div><div class="nmKick">Call</div><div class="nmBig">${cur.edited && callOf(ex.p) !== callOf(rx.p) ? `<s>${callOf(rx.p)}</s>` : ''}<span class="${cur.edited ? 'amberT' : ''}">${callOf(ex.p)}</span> <span class="${right(ex.p) ? 'okT' : 'badT'}">${ic(right(ex.p) ? 'check' : 'cross')}</span></div><div class="nmCap">${c ? `market went ${row.y ? 'up' : 'down'} · ${right(ex.p) ? 'right way' : 'wrong way'}` : 'a training forecast, not a call'}</div></div>
         <div><div class="nmKick">Size</div><div class="nmBig">${cur.edited ? `<s>${pts(rx.size)}</s><span class="amberT">${pts(ex.size)}</span>` : pts(ex.size)}</div><div class="nmCap">points · moved ${pts(row.move)}</div></div></div>`;
-      const C = curveSVG(cur, j, presets, 250);
+      const C = curveSVG(cur, j, presets, S.ch || 250);
+      html = `<div class="nmCenter">${html}`;
       html += `<div class="nmBlockHead"><span class="nmKick">P(up) for every value of ${esc(INPUTS[j])}</span><span class="nmLegend"><span><i class="lg real"></i>real call</span><span><i class="lg wi"></i>what-if</span><span><i class="lg pin"></i>preset</span><span><i class="lg flip"></i>flips at 50%</span><span><i class="lg zone"></i>right way</span></span></div>
-        <div class="nmChart">${C.html}</div>`;
+        <div class="nmChart">${C.html}</div></div>`;
       const most = ex.hidden.map(hd => [Math.abs(hd.terms[j].wz), hd.k]).sort((p, q) => q[0] - p[0])[0][1];
       const tot = ex.hidden.map(hd => hd.terms.reduce((s, q) => s + Math.abs(q.wz), Math.abs(hd.bias)));
       const shares = ex.hidden.map(hd => (tot[hd.k] ? Math.abs(hd.terms[j].wz) / tot[hd.k] : 0)), third = [...shares].sort((p, q) => q - p)[2];
@@ -457,8 +463,8 @@ export function createNetPanel(el) {
           ex.hidden.map(hd => { const d1 = hd.a * (1 - hd.a), g = d1 * sn.W1[hd.k * sn.d + j] * sn.mask[j] / sn.sd[j]; return `<tr><td>h${hd.k + 1}</td><td>${f4(d1)}</td><td>${sf(sn.W1[hd.k * sn.d + j])}</td><td>${sf(sn.W2[hd.k])}</td><td>${sf(sn.W2[sn.h + hd.k])}</td><td>${sf(sn.W2[hd.k] * g)}</td><td>${sf(sn.W2[sn.h + hd.k] * g * sn.msd)}</td></tr>`; }))
           + `<div class="netEq">∂P(up)/∂${esc(INPUTS[j])} = p(1 − p) × Σ = ${f4(ex.p * (1 - ex.p))} × (sum of the column) = <b>${sf(sens.dp)}</b> per unit<br>∂size/∂${esc(INPUTS[j])} = Σ × move spread ${f4(sn.msd)} = <b>${sf(sens.dsize)}</b> points per unit<small>the slope right here: a small change in ${esc(INPUTS[j])} moves P(up) and the size by about this much per unit (the sigmoids bend, so large edits move them less or more)</small></div>`],
       ];
-      html += `<div class="nmBlockHead"><span class="nmKick">The math on this call</span></div>` + steps.map(([title, key, inner], k) => `
-        <div class="nmStep ${S.open === k + 1 ? 'open' : ''}"><button type="button" data-o="${k + 1}" aria-expanded="${S.open === k + 1}"><span class="n">${k + 1}</span><span class="t">${title}</span><span class="k">${key}</span>${ic('chev')}</button>${S.open === k + 1 ? `<div class="nmStepBody">${inner}</div>` : ''}</div>`).join('');
+      html += `<div class="nmMath"><div class="nmBlockHead"><span class="nmKick">The math on this call</span></div>` + steps.map(([title, key, inner], k) => `
+        <div class="nmStep ${S.open === k + 1 ? 'open' : ''}"><button type="button" data-o="${k + 1}" aria-expanded="${S.open === k + 1}"><span class="n">${k + 1}</span><span class="t">${title}</span><span class="k">${key}</span>${ic('chev')}</button>${S.open === k + 1 ? `<div class="nmStepBody">${inner}</div>` : ''}</div>`).join('') + '</div>';
       const keep = body.scrollTop;
       body.innerHTML = html;
       body.scrollTop = keep;
@@ -467,27 +473,28 @@ export function createNetPanel(el) {
       return;
     } else if (t.kind === 'hid') {
       const hd = ex.hidden[t.k];
-      html += `<h3>1 · Its sum <span>each input's scaled value z times its weight, plus the bias</span></h3>` + table(['Input', 'Raw', 'z', 'Weight w', 'w · z'],
+      html += `<div class="nmCols"><div class="nmCol"><h3>1 · Its sum <span>each input's scaled value z times its weight, plus the bias</span></h3>` + table(['Input', 'Raw', 'z', 'Weight w', 'w · z'],
         hd.terms.map(q => `<tr class="${q.j in S.edits ? 'editedRow' : ''}"><td>${esc(INPUTS[q.j])}${S.mask[q.j] ? '' : ' <i>off</i>'}</td><td>${f4(ex.inputs[q.j].raw)}</td><td>${f4(q.z)}</td><td>${sf(q.w)}</td><td class="${q.wz >= 0 ? 'posT' : 'negT'}">${sf(q.wz)}</td></tr>`)
           .concat(`<tr class="base"><td>bias</td><td></td><td></td><td></td><td>${sf(hd.bias)}</td></tr>`));
-      html += `<div class="netEq">sum = ${sf(hd.bias)} ${hd.terms.map(q => sf(q.wz)).join(' ')} = <b>${f4(hd.sum)}</b><br>a = σ(sum) = 1 ÷ (1 + e<sup>−sum</sup>) = 1 ÷ (1 + e<sup>${f4(-hd.sum)}</sup>) = <b>${cmp(hd.a, rx.hidden[t.k].a)}</b></div>`;
+      html += `<div class="netEq">sum = ${sf(hd.bias)} ${hd.terms.map(q => sf(q.wz)).join(' ')} = <b>${f4(hd.sum)}</b><br>a = σ(sum) = 1 ÷ (1 + e<sup>−sum</sup>) = 1 ÷ (1 + e<sup>${f4(-hd.sum)}</sup>) = <b>${cmp(hd.a, rx.hidden[t.k].a)}</b></div></div><div class="nmCol">`;
       html += `<h3>2 · Where it goes</h3>` + table(['Output', 'Out-weight', 'a × weight', 'Share of that output’s |terms|'],
         ex.outputs.map((o, oi) => { const q = o.terms[t.k], tot = o.terms.reduce((s, x) => s + Math.abs(x.wa), 0); return `<tr><td>${OUT[oi]}</td><td>${sf(q.w)}</td><td class="${q.wa >= 0 ? 'posT' : 'negT'}">${sf(q.wa)}</td><td>${pct(tot ? Math.abs(q.wa) / tot : 0)}</td></tr>`; }));
-      html += outs;
+      html += `${outs}</div></div>`;
     } else if (t.kind === 'out') {
       const o = ex.outputs[t.o];
-      html += `<h3>1 · Its sum <span>each hidden neuron's activation a times its out-weight, plus the bias</span></h3>` + table(['Neuron', 'a', 'Weight w', 'a × w'],
+      html += `<div class="nmCols"><div class="nmCol"><h3>1 · Its sum <span>each hidden neuron's activation a times its out-weight, plus the bias</span></h3>` + table(['Neuron', 'a', 'Weight w', 'a × w'],
         o.terms.map(q => `<tr><td>h${q.k + 1}</td><td>${f4(q.a)}</td><td>${sf(q.w)}</td><td class="${q.wa >= 0 ? 'posT' : 'negT'}">${sf(q.wa)}</td></tr>`)
           .concat(`<tr class="base"><td>bias</td><td></td><td></td><td>${sf(o.bias)}</td></tr>`));
       html += `<div class="netEq">sum = ${sf(o.bias)} ${o.terms.map(q => sf(q.wa)).join(' ')} = <b>${f4(o.sum)}</b><br>${t.o === 0
         ? `P(up) = σ(sum) = 1 ÷ (1 + e<sup>${f4(-o.sum)}</sup>) = <b>${cmp(ex.p, rx.p, v => pct(v))}</b> (${f4(ex.p)}) → calls <b>${ex.p > 0.5 ? 'up' : 'down'}</b>`
-        : `size = sum × move spread = ${f4(o.sum)} × ${f4(ex.msd)} = <b>${cmp(ex.size, rx.size, sgn)}</b> points<small>the move spread is the root mean square of the 3-hour moves in the ${fit.upTo} training forecasts: the network learns the size in those units</small>`}</div>`;
+        : `size = sum × move spread = ${f4(o.sum)} × ${f4(ex.msd)} = <b>${cmp(ex.size, rx.size, sgn)}</b> points<small>the move spread is the root mean square of the 3-hour moves in the ${fit.upTo} training forecasts: the network learns the size in those units</small>`}</div></div><div class="nmCol">`;
       if (ex.loss) {
         const L = ex.loss;
         html += `<h3>2 · What training counts as wrong <span>${c ? 'this call was not trained on: this is the loss it would add' : 'this forecast was in training'}</span></h3><div class="netEq">${t.o === 0
           ? `market went ${L.y ? 'up (y = 1)' : 'down (y = 0)'} · cross-entropy = −ln(${L.y ? 'p' : '1 − p'}) = −ln(${f4(L.y ? ex.p : 1 - ex.p)}) = <b>${f4(L.ce)}</b>`
           : `target = move ÷ spread = ${sgn(L.move)} ÷ ${f4(ex.msd)} = ${f4(L.t)} · error e = sum − target = ${f4(o.sum)} − ${pf(L.t)} = ${f4(L.e1)} · ½e² = <b>${f4(L.sq)}</b>`}<small>training minimises the average of cross-entropy + ½e² over the forecasts it has seen (plus a small weight decay, ${NET.decay}·½Σw²)</small></div>`;
       }
+      html += '</div></div>';
     } else {
       const now = t.layer === 1 ? sn.W1[t.k * sn.d + t.j] : sn.W2[t.o * sn.h + t.k];
       const before = prev ? (t.layer === 1 ? prev.snap.W1[t.k * sn.d + t.j] : prev.snap.W2[t.o * sn.h + t.k]) : null;

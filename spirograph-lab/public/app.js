@@ -6,6 +6,9 @@
 import { createLabPlayer } from '/lab/labPlayer.js';
 import { createNetPanel } from '/net.js';
 import { createEdgeView } from '/edge.js';
+import { createGradeHelp } from '/gradeHelp.js';
+import { createEdgeHelp } from '/edgeHelp.js';
+import { createDayHelp } from '/dayHelp.js';
 import { esc, when, hm, tradeDay, isoDay, dayMonth, pct, sgn, int, arrow } from '/lab/util.js';
 import { COLORS } from '/engine/constants.js';
 import { nyEpoch } from '/engine/levels.js';
@@ -35,12 +38,15 @@ function toast(text, bad = false) {
 const st = {
   tab: TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : store.get('tab', 'day'),
   series: store.get('series', ''), list: [], days: [], day: null, dayOpen: null,
-  grades: [], gradeKey: null, grade: null, runSel: null,
+  grades: [], gradeKey: null, grade: null, runSel: null, runFilter: 'all',
   jobs: [], watching: new Map(), pollTimer: 0,
 };
 const player = createLabPlayer($('player'));
 const netPanel = createNetPanel($('eNet'));
 const edgeView = createEdgeView($('eView'), { netPanel, wire: $('eWire'), regrade: (from, to) => startGrade(from, to) });
+const gradeHelp = createGradeHelp($('gHelp'), { getGrade: () => st.grade, show: showOnGrade });
+const edgeHelp = createEdgeHelp($('eHelp'), { show: showOnEdge });
+const dayHelp = createDayHelp($('dHelp'), { show: showOnDay });
 
 // ---------------------------------------------------------------- tabs
 function setTab(tab) {
@@ -59,6 +65,34 @@ $('tabs').addEventListener('keydown', e => {
   setTab(next); document.querySelector(`#tabs [data-tab="${next}"]`).focus();
 });
 window.addEventListener('hashchange', () => setTab(location.hash.slice(1)));
+
+// ---------------------------------------------------------------- help: the walkthrough's "show me"
+// the button opens the walkthrough of the tab you are on
+$('helpBtn').addEventListener('click', () => ({ day: dayHelp, grade: gradeHelp, edge: edgeHelp })[st.tab].open());
+function showOnDay(where) {
+  setTab('day');
+  const p = $('player'), q = s => p.querySelector(s);
+  const el = { toolbar: $('daySel').closest('.toolbar'), sheet: q('.lpSheet'), rail: q('.lpRail'), hold: q('.lpHold'), deck: q('.lpBar'), chart: q('.lpChart') }[where];
+  const target = el && !el.closest('[hidden]') ? el : $('daySel').closest('.toolbar');
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
+}
+function showOnGrade(where) {
+  setTab('grade');
+  const el = { toolbar: $('gTools'), verdict: $('gVerdict'), grid: $('gCal').closest('.gCard'), circles: $('gCircles').closest('.gCard'), list: $('gRuns').closest('.gCard') }[where];
+  const target = el && !el.closest('[hidden]') ? el : $('gTools');
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
+}
+function showOnEdge(where) {
+  setTab('edge');
+  const q = k => document.querySelector(`#eView [data-e="${k}"]`);
+  if (where === 'wire' && q('wire') && !q('secWire').closest('[hidden]')) { q('wire').click(); return; }   // "Full wiring and math": open it
+  const el = { verdict: document.querySelector('#eView .edVerdict'), race: q('raceCard'), board: q('board'), panel: q('panel'), looks: q('secLooks'), call: q('secCall'), wire: q('secWire') }[where];
+  const target = el && !el.closest('[hidden]') ? el : q('panel') || $('pane-edge');
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
+}
 
 // ---------------------------------------------------------------- the instrument
 async function loadSeries() {
@@ -179,33 +213,118 @@ async function openGrade(key) {
     paintGrade(); paintEdge();
   } catch (e) { $('gMsg').textContent = e.message; }
 }
-const dot = ok => `<i class="dot ${ok === true ? 'ok' : ok === false ? 'bad' : ''}"></i>`;
+const SLOTS = [18, 21, 0, 3, 6, 9, 12, 15];   // a session's 3-hour slots in New York, 6 pm open first
+const hourWord = x => (x === 0 ? '12 am' : x < 12 ? `${x} am` : x === 12 ? '12 pm' : `${x - 12} pm`);
+const nyHour = ms => Number(hm(ms).slice(0, 2));
+/** A position along [lo, hi] as a percentage, clamped to the track. */
+const pos = (v, lo, hi) => Math.max(0, Math.min(100, (100 * (v - lo)) / (hi - lo)));
+/** A scale that holds every value with some room either side. */
+function domain(vals, minSpan) {
+  const ok = vals.filter(Number.isFinite); let lo = Math.min(...ok), hi = Math.max(...ok);
+  const pad = Math.max(minSpan - (hi - lo), 0) / 2 + (hi - lo) * 0.12; return [lo - pad, hi + pad];
+}
+
 function paintGrade() {
-  const g = st.grade, sc = g.sc, h = g.head;
-  $('gHead').innerHTML = `<b class="word ${h.edge ? 'ok' : h.ready ? 'bad' : ''}">${dot(h.ready ? h.edge : null)}${esc(h.word)}</b><span>${esc(g.name)} · ${span(g.from, g.to)} · ${sc.runs} forecasts · ${esc(h.text)}</span>`;
-  const tile = (label, big, sub, ok) => `<div class="tile"><small>${label}</small><b>${big}</b><span>${dot(ok)}${sub}</span></div>`;
-  $('gTiles').innerHTML = [
-    tile('Forecasts graded', int(sc.runs), `${Object.entries(g.why || {}).map(([k, n]) => `${n} skipped (${k === 'history' ? 'too little history' : k})`).join(', ') || 'none skipped'}`, null),
-    tile('Direction', pct(sc.dir.rate), `${sc.dir.hits} of ${sc.dir.n} right · always ${sc.dir.upShare >= 0.5 ? 'up' : 'down'} gets ${pct(sc.dir.majority)}`, h.ready ? h.dirEdge : null),
-    tile('Path vs a flat line', Number.isFinite(sc.path.ratio) ? `${sc.path.ratio.toFixed(2)}×` : '—', Number.isFinite(sc.path.mae) ? `average miss ±${sc.path.mae.toFixed(1)} pts · flat ±${sc.path.flat.toFixed(1)} · below 1× is better` : 'no closes to grade', Number.isFinite(sc.path.ratio) ? sc.path.ratio < 1 : null),
-    tile('Turns on time', pct(sc.turns.rate), `${int(sc.turns.hits)} of ${int(sc.turns.graded)} · a random market gets ${pct(sc.turns.chance)}`, sc.turns.graded >= 30 ? h.turnEdge : null),
-  ].join('');
-  $('gCircles').innerHTML = `<table><thead><tr><th>Circle</th><th>Turns graded</th><th>On time</th><th>Rate</th><th>Random</th></tr></thead><tbody>`
-    + sc.turns.circles.map(c => `<tr><td><i class="sw" style="--c:${COLORS[c.n]}"></i>${WORD[c.n]}</td><td>${int(c.graded)}</td><td>${int(c.hits)}</td><td class="${c.graded >= 30 ? (c.lo > c.chance ? 'ok' : c.hi < c.chance ? 'bad' : '') : 'muted'}">${pct(c.rate)}</td><td>${pct(c.chance)}</td></tr>`).join('') + '</tbody></table>';
-  const hourWord = x => (x === 0 ? '12 am' : x < 12 ? `${x} am` : x === 12 ? '12 pm' : `${x - 12} pm`);
-  $('gHours').innerHTML = `<table><thead><tr><th>Slot</th><th>Forecasts</th><th>Direction</th><th>Turns on time</th></tr></thead><tbody>`
-    + sc.byHour.map(x => `<tr><td>${hourWord(x.hour)}</td><td>${x.runs}</td><td>${x.dirN ? `${pct(x.dirHit / x.dirN)} <i>${x.dirHit}/${x.dirN}</i>` : '—'}</td><td>${x.graded ? `${pct(x.hits / x.graded)} <i>${x.hits}/${x.graded}</i>` : '—'}</td></tr>`).join('') + '</tbody></table>';
+  const g = st.grade, sc = g.sc, h = g.head, usual = sc.dir.upShare >= 0.5 ? 'up' : 'down';
+  const skipped = Object.values(g.why || {}).reduce((a, n) => a + n, 0);
+  const days = new Set(g.runs.map(r => tradeDay(r.at))).size;
+
+  // the verdict, then each test: where the circles landed, the range luck allows around it, and the bar to clear
+  const test = ({ name, why, you, band, bar, fmt, state, pill, detail, minSpan, info }) => {
+    const [lo, hi] = domain([you, bar, ...(band || [])], minSpan), x = v => pos(v, lo, hi).toFixed(1);
+    return `<div class="test ${state}"><div><h4>${name}${info ? `<em>${info}</em>` : ''}</h4><small>${why}</small></div>
+      <div class="track"><div class="rail"></div>`
+      + (band ? `<div class="band" style="left:${x(band[0])}%;width:${(pos(band[1], lo, hi) - pos(band[0], lo, hi)).toFixed(1)}%"></div>` : '')
+      + `<div class="tick" style="left:${x(bar)}%"></div><span style="left:${x(bar)}%">${fmt(bar)}</span>`
+      + `<div class="you" style="left:${x(you)}%"></div><b style="left:${x(you)}%">${fmt(you)}</b>`
+      + `<span class="end" style="left:0">${fmt(lo)}</span><span class="end" style="left:auto;right:0">${fmt(hi)}</span></div>`
+      + `<div class="res"><span class="pill ${state === 'flat' ? '' : state}">${pill}</span><small>${detail}</small></div></div>`;
+  };
+  const judged = (ready, edge, ahead) => (!ready ? ['flat', 'Too few to judge'] : edge ? ['ok', '✓ Beats it'] : ahead ? ['amber', 'Ahead, not proven'] : ['bad', '✕ Does not beat it']);
+  const tests = [];
+  if (Number.isFinite(sc.dir.rate)) {
+    const [state, pill] = judged(h.ready, h.dirEdge, sc.dir.rate > sc.dir.majority);
+    tests.push(test({ name: 'Direction', why: `Up or down called right, against always guessing ${usual}`, you: sc.dir.rate, band: [sc.dir.lo, sc.dir.hi], bar: sc.dir.majority, fmt: pct, minSpan: 0.15, state, pill,
+      detail: `${sc.dir.hits} of ${sc.dir.n} right · always ${usual} gets ${pct(sc.dir.majority)}` }));
+  }
+  if (Number.isFinite(sc.turns.rate)) {
+    const [state, pill] = judged(sc.turns.graded >= 30, h.turnEdge, sc.turns.rate > sc.turns.chance);
+    tests.push(test({ name: 'Turns on time', why: 'Circle turns within ⅛ of a lap, against a random market', you: sc.turns.rate, band: [sc.turns.lo, sc.turns.hi], bar: sc.turns.chance, fmt: pct, minSpan: 0.1, state, pill,
+      detail: `${int(sc.turns.hits)} of ${int(sc.turns.graded)} · a random market gets ${pct(sc.turns.chance)}` }));
+  }
+  if (Number.isFinite(sc.path.ratio)) {
+    const better = sc.path.ratio < 1;
+    tests.push(test({ name: 'Path', info: 'not in the verdict', why: 'Average miss against a flat line; below 1× is better', you: sc.path.ratio, bar: 1, fmt: v => `${v.toFixed(2)}×`, minSpan: 0.3,
+      state: 'flat', pill: better ? 'Closer than flat' : 'Further than flat', detail: `miss ±${sc.path.mae.toFixed(1)} pts · flat ±${sc.path.flat.toFixed(1)}` }));
+  }
+  const passed = [h.dirEdge && 'direction', h.turnEdge && 'turns'].filter(Boolean);
+  const say = !h.ready ? esc(h.text)
+    : h.edge ? `The circles beat a no-skill guess on ${passed.join(' and ')}, by more than luck allows. Check it holds on a range they have not seen before trusting it.`
+    : sc.dir.rate > sc.dir.majority || sc.turns.rate > sc.turns.chance ? 'Neither test cleared its bar. Where the circles came out ahead, it was by less than luck alone would give.'
+    : `Neither test cleared its bar: the circles called direction no better than always guessing ${usual}, and their turns landed no more often than a random market’s.`;
+  $('gVerdict').innerHTML = `<div class="vLeft ${h.edge ? 'ok' : h.ready ? 'bad' : ''}"><small>${esc(g.name)} · ${span(g.from, g.to)}</small>`
+    + `<div class="vWord"><i></i>${esc(h.word)}</div><p>${say}</p>`
+    + `<div class="vMeta"><div><b>${int(sc.runs)}</b>forecasts</div><div><b>${days}</b>trading days</div><div><b>${skipped}</b>skipped</div></div></div>`
+    + `<div class="tests">${tests.join('')}</div>`;
+
+  // every forecast on one grid, coloured by its direction call
+  const cols = [...new Set(g.runs.map(r => tradeDay(r.at)))].reverse(), byCell = new Map(g.runs.map(r => [`${tradeDay(r.at)}|${nyHour(r.at)}`, r]));
+  const moves = g.runs.map(r => Math.abs(r.actual)).filter(Number.isFinite).sort((a, b) => a - b), big = moves[Math.floor(moves.length * 0.9)] || 1;
+  const slot = new Map(sc.byHour.filter(Boolean).map(x => [x.hour, x]));
+  $('gCal').innerHTML = SLOTS.map(hh => {
+    const x = slot.get(hh), rate = x && x.dirN ? x.dirHit / x.dirN : NaN;
+    const tone = !Number.isFinite(rate) ? '' : rate >= sc.dir.majority + 0.05 ? 'ok' : rate <= sc.dir.majority - 0.05 ? 'bad' : '';
+    return `<span class="rl">${hourWord(hh)}</span><div class="cells" style="--days:${cols.length}">` + cols.map(d => {
+      const r = byCell.get(`${d}|${hh}`);
+      if (!r) return '<div class="cell"></div>';
+      const cls = r.dirHit === true ? 'r' : r.dirHit === false ? 'w' : '', a = (0.3 + 0.65 * Math.min(1, Math.abs(r.actual) / big)).toFixed(2);
+      return `<div class="cell ${cls}" style="--a:${a}" data-at="${r.at}" title="${when(r.at)} · called ${arrow(r.dir)} ${sgn(r.move)} · market ${r.actual == null ? '—' : `${arrow(Math.sign(r.actual))} ${sgn(r.actual)}`}${r.dirHit == null ? '' : r.dirHit ? ' · right' : ' · wrong'}"></div>`;
+    }).join('') + `</div><span class="rr ${tone}" title="${x ? `${x.dirHit} of ${x.dirN} right at ${hourWord(hh)}` : ''}">${pct(rate)}</span>`;
+  }).join('')
+    + `<span></span><div class="calDays" style="--days:${cols.length}">${cols.map((d, i) => `<span>${d.startsWith('Mon') || (i === 0 && cols.length < 8) ? d.slice(4) : ''}</span>`).join('')}</div><span class="rr cap">slot rate</span>`;
+
+  // turns by circle
+  const circles = sc.turns.circles.filter(c => c.graded);
+  const [clo, chi] = domain(circles.flatMap(c => [c.rate, c.chance, ...(c.graded >= 30 ? [c.lo, c.hi] : [])]), 0.15), cx = v => pos(v, clo, chi).toFixed(1);
+  const ticks = []; for (let v = Math.ceil(clo * 20) / 20; v <= chi; v += 0.05) ticks.push(v);
+  $('gCircles').innerHTML = circles.map(c => {
+    const thin = c.graded < 30, tone = thin ? 'muted' : c.lo > c.chance ? 'ok' : c.hi < c.chance ? 'bad' : '';
+    return `<span class="nm"><i class="sw" style="--c:${COLORS[c.n]}"></i>${WORD[c.n]}</span>`
+      + `<div class="dumb ${tone}"><div class="ax"></div>${thin ? '' : `<div class="band" style="left:${cx(c.lo)}%;width:${(pos(c.hi, clo, chi) - pos(c.lo, clo, chi)).toFixed(1)}%"></div>`}`
+      + `<div class="tick" style="left:${cx(c.chance)}%"></div><div class="me${thin ? ' thin' : ''}" style="left:${cx(c.rate)}%;--c:${COLORS[c.n]}" title="${WORD[c.n]}: ${c.hits} of ${c.graded} on time · random ${pct(c.chance)}"></div></div>`
+      + `<span class="v ${tone}">${pct(c.rate)} <i>/ ${pct(c.chance)}</i><small>${int(c.graded)} turns</small></span>`;
+  }).join('') + `<span></span><div class="scale">${ticks.map(v => `<span style="left:${cx(v)}%">${pct(v)}</span>`).join('')}</div><span></span>`;
+
   $('gRolls').innerHTML = g.rolls && g.rolls.length ? `Rolls stitched: ${g.rolls.map(r => `${nameOf(r.from)} → ${nameOf(r.to)} on ${tradeDay(r.at)} (older prices shifted ${sgn(r.gap)} pts; moves unchanged)`).join(' · ')}` : '';
   paintRuns();
 }
+const FILTERS = [
+  ['all', 'All', () => true],
+  ['right', 'Right', r => r.dirHit === true],
+  ['wrong', 'Wrong', r => r.dirHit === false],
+  ['worse', 'Further than flat', r => r.mae != null && r.flatMae != null && r.mae > r.flatMae],
+];
 function paintRuns() {
-  const g = st.grade;
-  $('gRuns').innerHTML = `<table><thead><tr><th>Frozen</th><th>Pen called</th><th>Market did</th><th>Direction</th><th>Path miss</th><th>Flat miss</th><th>Turns</th><th>Fit explains</th></tr></thead><tbody>`
-    + g.runs.map(r => `<tr class="row${st.runSel === r.at ? ' on' : ''}" data-at="${r.at}" tabindex="0"><td>${when(r.at)}</td><td>${arrow(r.dir)} ${sgn(r.move)}</td><td>${r.actual == null ? '—' : `${arrow(Math.sign(r.actual))} ${sgn(r.actual)}`}</td>`
-      + `<td class="${r.dirHit === true ? 'ok' : r.dirHit === false ? 'bad' : 'muted'}">${r.dirHit === true ? 'right' : r.dirHit === false ? 'wrong' : '—'}</td>`
-      + `<td class="${r.mae != null && r.mae < r.flatMae ? 'ok' : ''}">${r.mae == null ? '—' : '±' + r.mae.toFixed(1)}</td><td>${r.flatMae == null ? '—' : '±' + r.flatMae.toFixed(1)}</td>`
-      + `<td>${r.graded ? `${r.hits}/${r.graded}` : '—'}</td><td>${Number.isFinite(r.explained) ? pct(r.explained) : '—'}</td></tr>`).join('') + '</tbody></table>';
+  const g = st.grade, [, , keep] = FILTERS.find(f => f[0] === st.runFilter) || FILTERS[0];
+  $('gFilter').innerHTML = FILTERS.map(([k, label, f]) => `<button type="button" data-f="${k}" class="${(st.runFilter || 'all') === k ? 'on' : ''}">${label} ${g.runs.filter(f).length}</button>`).join('');
+  const w = (v, r) => `${((100 * v) / Math.max(r.mae, r.flatMae, 1e-9)).toFixed(0)}%`;   // each row against its own larger miss
+  const move = (d, v) => `<span class="mv"><i class="${d > 0 ? 'u' : d < 0 ? 'd' : ''}">${arrow(d)}</i>${sgn(v)}</span>`;
+  const rows = g.runs.filter(keep);
+  $('gRuns').innerHTML = `<table><thead><tr><th>Frozen</th><th>Called <i>→</i> market did</th><th>Direction</th><th>Path miss <i>against flat</i></th><th>Turns on time</th><th>Fit explains</th></tr></thead><tbody>`
+    + (rows.length ? rows.map(r => {
+      const tone = r.mae == null || r.flatMae == null ? '' : r.mae < r.flatMae ? 'ok' : 'bad';
+      return `<tr class="row${st.runSel === r.at ? ' on' : ''}" data-at="${r.at}" tabindex="0"><td class="when">${when(r.at)}</td>`
+        + `<td>${move(r.dir, r.move)}<span class="to">→</span>${r.actual == null ? '—' : move(Math.sign(r.actual), r.actual)}</td>`
+        + `<td><span class="pill ${r.dirHit === true ? 'ok' : r.dirHit === false ? 'bad' : ''}">${r.dirHit === true ? 'Right' : r.dirHit === false ? 'Wrong' : 'No call'}</span></td>`
+        + `<td>${r.mae == null ? '—' : `<div class="pm"><span class="bars"><i class="${tone}" style="width:${w(r.mae, r)}"></i><i style="width:${w(r.flatMae, r)}"></i></span><b class="${tone}">±${r.mae.toFixed(1)}</b><span class="mut">/ ±${r.flatMae.toFixed(1)}</span></div>`}</td>`
+        + `<td>${r.graded ? `<span class="mini"><i style="width:${((100 * r.hits) / r.graded).toFixed(0)}%"></i></span>${r.hits}/${r.graded}` : '—'}</td>`
+        + `<td class="${Number.isFinite(r.explained) && r.explained > 0 ? '' : 'muted'}">${Number.isFinite(r.explained) ? pct(r.explained) : '—'}</td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="muted">no forecasts match</td></tr>') + '</tbody></table>';
+  for (const c of document.querySelectorAll('#gCal .cell.on')) c.classList.remove('on');
+  if (st.runSel != null) document.querySelector(`#gCal .cell[data-at="${st.runSel}"]`)?.classList.add('on');
 }
+$('gFilter').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) { st.runFilter = b.dataset.f; paintRuns(); } });
+$('gCal').addEventListener('click', e => { const c = e.target.closest('.cell[data-at]'); if (c) openRun(Number(c.dataset.at)); });
 function pickRun(e) {
   const tr = e.target.closest('tr[data-at]'); if (!tr) return;
   if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;

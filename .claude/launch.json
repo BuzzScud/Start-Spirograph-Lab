@@ -1,0 +1,43 @@
+{
+ "version": "0.0.1",
+ "configurations": [
+  {
+   "name": "lab-net-test",
+   "runtimeExecutable": "node",
+   "runtimeArgs": [
+    "--disable-warning=ExperimentalWarning",
+    "spirograph-lab/server/server.mjs"
+   ],
+   "port": 17481,
+   "env": {
+    "LAB_PORT": "17481",
+    "LAB_DB": "/private/tmp/claude-501/-Users-christiantavarez-Desktop-16SEP-SPRIOGRAPHY/374b03dc-7dc2-4768-b63a-0f19079f3e04/scratchpad/lab.db"
+   }
+  },
+  {
+   "name": "grade-mockups",
+   "runtimeExecutable": "python3",
+   "runtimeArgs": [
+    "-m",
+    "http.server",
+    "17490",
+    "-d",
+    "/private/tmp/claude-501/-Users-christiantavarez-Desktop-16SEP-SPRIOGRAPHY/7c6d4368-91fa-47dc-a360-94ed14db1e72/scratchpad/grade"
+   ],
+   "port": 17490
+  },
+  {
+   "name": "lab-edge-help",
+   "runtimeExecutable": "node",
+   "runtimeArgs": [
+    "--disable-warning=ExperimentalWarning",
+    "spirograph-lab/server/server.mjs"
+   ],
+   "port": 17483,
+   "env": {
+    "LAB_PORT": "17483",
+    "LAB_DB": "/private/tmp/claude-501/-Users-christiantavarez-Desktop-16SEP-SPRIOGRAPHY/374b03dc-7dc2-4768-b63a-0f19079f3e04/scratchpad/lab.db"
+   }
+  }
+ ]
+}

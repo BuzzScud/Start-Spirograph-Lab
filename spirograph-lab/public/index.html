@@ -21,6 +21,7 @@
     <button type="button" role="tab" data-tab="edge" aria-controls="pane-edge">Edge check</button>
   </nav>
   <label class="field">Instrument <select id="series" aria-label="Instrument"></select></label>
+  <button type="button" class="btn helpBtn" id="helpBtn" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4"/><circle class="fill" cx="12" cy="17.4" r=".9"/></svg>Help me</button>
   <div class="jobChip" id="jobChip" hidden></div>
 </header>
 
@@ -36,7 +37,7 @@
   </section>
 
   <section class="pane" id="pane-grade" role="tabpanel" hidden>
-    <div class="toolbar">
+    <div class="toolbar" id="gTools">
       <label class="field">From <input type="date" id="gFrom"></label>
       <label class="field">To <input type="date" id="gTo"></label>
       <span class="seg" id="gQuick"><button type="button" data-d="14">14 days</button><button type="button" data-d="30">30 days</button><button type="button" data-d="60">60 days</button><button type="button" data-d="all">All banked</button></span>
@@ -46,15 +47,26 @@
     <p class="sub">Every 3 hours in the range, the circles are fitted on the prices before that moment only, and their next 3 hours are written down. Then they are checked against what the market did. The circles pass only if they call the <b>direction</b> better than always guessing the usual way, or land their <b>turns</b> closer than a random market would.</p>
     <div class="msg" id="gMsg"></div>
     <div id="gBody" hidden>
-      <div class="headline" id="gHead"></div>
-      <div class="tiles" id="gTiles"></div>
-      <div class="split">
-        <div><h3>By circle <span>turns within ⅛ of a lap</span></h3><div class="table" id="gCircles"></div></div>
-        <div><h3>By slot <span>New York time</span></h3><div class="table" id="gHours"></div></div>
+      <section class="verdict" id="gVerdict"></section>
+      <div class="gRow">
+        <section class="gCard">
+          <div class="gCardHead"><h3>Every forecast <span>direction · days across, New York slots down · click one to replay it</span></h3>
+            <span class="gKey"><span><i class="r"></i>right</span><span><i class="w"></i>wrong</span><span><i></i>no call or not traded</span><span>brighter = bigger move</span></span></div>
+          <div class="cal" id="gCal"></div>
+          <div class="rolls" id="gRolls"></div>
+        </section>
+        <section class="gCard">
+          <div class="gCardHead"><h3>Turns on time <span>by circle · within ⅛ of a lap</span></h3>
+            <span class="gKey"><span><i class="me"></i>circle</span><span><i class="tick"></i>random</span><span><i class="band"></i>range luck allows</span></span></div>
+          <div class="circ" id="gCircles"></div>
+          <p class="note">A circle beats random only when its whole shaded range sits to the right of the tick. Hollow dots have under 30 turns, too few to judge.</p>
+        </section>
       </div>
-      <div class="rolls" id="gRolls"></div>
-      <h3 class="mt">Forecasts <span>newest first · click one to replay it</span></h3>
-      <div class="table list" id="gRuns"></div>
+      <section class="gCard flush">
+        <div class="gCardHead"><h3>Forecasts <span>newest first · click one to replay it</span></h3>
+          <span class="seg" id="gFilter"></span></div>
+        <div class="table list" id="gRuns"></div>
+      </section>
       <div class="replay" id="gReplay" hidden></div>
     </div>
   </section>
@@ -67,10 +79,15 @@
 <dialog class="edWire" id="eWire" aria-labelledby="eWireTitle">
   <div class="edWireHead">
     <div><h2 id="eWireTitle">Full wiring and math</h2><span data-w="sub"></span></div>
+    <button type="button" class="btn" data-w="about" aria-expanded="false" aria-controls="eWireAbout">About the inputs</button>
     <button type="button" class="btn" data-w="close">Close</button>
+    <div class="edWireAbout" id="eWireAbout" data-w="aboutBox" hidden></div>
   </div>
   <div class="edWireBody"><section class="netPanel" id="eNet"></section></div>
 </dialog>
+<dialog class="gHelp" id="gHelp" aria-label="How the Multi-day grade is made"></dialog>
+<dialog class="gHelp" id="eHelp" aria-label="How the Edge check is made"></dialog>
+<dialog class="gHelp" id="dHelp" aria-label="How the Day player works"></dialog>
 <div class="toast" id="toast" role="status" hidden></div>
 <script type="module" src="/app.js"></script>
 </body>
