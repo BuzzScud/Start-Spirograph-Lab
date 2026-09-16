@@ -1,0 +1,4 @@
+.DS_Store
+node_modules/
+# built days and grades: local results, rebuilt by the app
+spirograph-lab/data/

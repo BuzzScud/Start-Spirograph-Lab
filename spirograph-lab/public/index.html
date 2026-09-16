@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Spirograph Lab</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2306080d'/%3E%3Ccircle cx='13' cy='16' r='8' fill='none' stroke='%23a78bfa' stroke-width='2'/%3E%3Ccircle cx='19' cy='16' r='4' fill='none' stroke='%23a78bfa' stroke-width='2'/%3E%3Ccircle cx='23' cy='16' r='2' fill='%23a78bfa'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="12" r="8"/><circle cx="15" cy="12" r="4"/><circle class="pen" cx="19" cy="12" r="1.7"/></svg>
+    <h1>Spirograph Lab</h1>
+  </div>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="View">
+    <button type="button" role="tab" data-tab="day" aria-controls="pane-day">Day player</button>
+    <button type="button" role="tab" data-tab="grade" aria-controls="pane-grade">Multi-day grade</button>
+    <button type="button" role="tab" data-tab="edge" aria-controls="pane-edge">Edge check</button>
+  </nav>
+  <label class="field">Instrument <select id="series" aria-label="Instrument"></select></label>
+  <div class="jobChip" id="jobChip" hidden></div>
+</header>
+
+<main>
+  <section class="pane" id="pane-day" role="tabpanel" hidden>
+    <div class="toolbar">
+      <label class="field">Day <select id="daySel"></select></label>
+      <button type="button" class="btn pri" id="dayBuild">Build</button>
+      <span class="hint" id="dayHint"></span>
+    </div>
+    <div class="msg" id="dayMsg"></div>
+    <div class="player" id="player" hidden></div>
+  </section>
+
+  <section class="pane" id="pane-grade" role="tabpanel" hidden>
+    <div class="toolbar">
+      <label class="field">From <input type="date" id="gFrom"></label>
+      <label class="field">To <input type="date" id="gTo"></label>
+      <span class="seg" id="gQuick"><button type="button" data-d="14">14 days</button><button type="button" data-d="30">30 days</button><button type="button" data-d="60">60 days</button><button type="button" data-d="all">All banked</button></span>
+      <button type="button" class="btn pri" id="gRun">Grade</button>
+      <label class="field grow">Saved <select id="gSaved"></select></label>
+    </div>
+    <p class="sub">Every 3 hours in the range, the circles are fitted on the prices before that moment only, and their next 3 hours are written down. Then they are checked against what the market did. The circles pass only if they call the <b>direction</b> better than always guessing the usual way, or land their <b>turns</b> closer than a random market would.</p>
+    <div class="msg" id="gMsg"></div>
+    <div id="gBody" hidden>
+      <div class="headline" id="gHead"></div>
+      <div class="tiles" id="gTiles"></div>
+      <div class="split">
+        <div><h3>By circle <span>turns within ⅛ of a lap</span></h3><div class="table" id="gCircles"></div></div>
+        <div><h3>By slot <span>New York time</span></h3><div class="table" id="gHours"></div></div>
+      </div>
+      <div class="rolls" id="gRolls"></div>
+      <h3 class="mt">Forecasts <span>newest first · click one to replay it</span></h3>
+      <div class="table list" id="gRuns"></div>
+      <div class="replay" id="gReplay" hidden></div>
+    </div>
+  </section>
+
+  <section class="pane" id="pane-edge" role="tabpanel" hidden>
+    <p class="sub">Could a learning model — a neural network, say — find something in the circles? First, a simpler question: can a <b>small learner</b> find anything at all? It takes the forecasts of the grade picked on <b>Multi-day grade</b>, in time order. It learns only from the ones before each call, then calls the next one's direction. If a small learner can't beat always guessing the usual way, a bigger model would only memorise noise.</p>
+    <div class="msg" id="eMsg"></div>
+    <div id="eBody" hidden>
+      <div class="headline" id="eHead"></div>
+      <div class="table" id="eTable"></div>
+      <p class="note" id="eNote"></p>
+      <div class="next">
+        <h3>What would make a neural network worth trying</h3>
+        <ol>
+          <li><b>More examples.</b> Forecasts every 15 minutes instead of every 3 hours, and more instruments, give thousands of rows from the same bars.</li>
+          <li><b>This check as the pass mark.</b> A new idea counts only if it beats the usual way here, on calls it never saw.</li>
+          <li><b>Small first.</b> Only if a small learner finds something is a bigger model worth building.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

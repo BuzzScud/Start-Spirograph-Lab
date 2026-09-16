@@ -1,0 +1,13 @@
+{
+  "name": "spirograph-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Spirograph Lab: replay any day of the Daily set circles, grade them over many days, and check whether anything in them can be learned. Reads the Ladder's banked bars read-only.",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/server.mjs",
+    "open": "node --disable-warning=ExperimentalWarning server/server.mjs --open",
+    "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.mjs\""
+  }
+}
