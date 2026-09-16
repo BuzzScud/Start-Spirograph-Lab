@@ -7,6 +7,9 @@ A standalone app for the Spirograph's Daily set circles (1D · 4H · 2H · 24m �
   - Under the circles, an overview of the whole day and a 2/4/8-hour close-up that follows the playhead. Click or drag either to move; hover the close-up to read any minute. Slow (turtle) plays a day in 3 minutes, fast (rabbit) in 30 seconds.
 - **Multi-day grade:** pick a date range. Every 3 hours in it, the circles forecast the next 3 hours using only earlier prices, and each forecast is checked against the market. The page gives one verdict: path vs a flat line, direction vs always guessing the usual way, turns vs a random market.
 - **Edge check:** tests whether a small learner can find anything in those forecasts. If it can't, a neural network would only memorise noise.
+  - Below it, a real **neural network** (12 inputs → 8 hidden → up and size) trains live in the page on the grade's forecasts. Its inputs are the circles' numbers and the time the pen was frozen. It learns only from forecasts before each call.
+  - The server trains the same network when the grade is built. When the page finishes, it checks that its run matches the server's.
+  - Grades built before the network show "Rebuild the grade": grade the same range again.
 
 ## Start it
 
@@ -42,8 +45,8 @@ npm test
 
 ```
 server/   server.mjs (http + static), lab.mjs (API + job queue), labJob.mjs, worker.mjs, labStore.mjs
-lab/      labDay.js (day replay), labEdge.js (edge check), labSeries.js (front month), labPlayer.js, util.js
-public/   index.html, app.js, style.css (turtle and rabbit icons: Lucide, ISC)
+lab/      labDay.js (day replay), labEdge.js (edge check), labNet.js (neural network), labSeries.js (front month), labPlayer.js, util.js
+public/   index.html, app.js, net.js (network panel), style.css (turtle and rabbit icons: Lucide, ISC)
 engine/   the Ladder's engine, copied
 tests/    npm test
 ```

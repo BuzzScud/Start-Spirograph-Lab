@@ -3,7 +3,7 @@
   --bg:#06080d;--surface:#10141b;--glass:rgb(16 20 27 / 82%);
   --ink:#f4f7fb;--ink-2:#c3ccd8;--muted:#93a0b3;--faint:#66738a;
   --border:rgb(255 255 255 / 8%);--border-2:rgb(255 255 255 / 16%);
-  --violet:#a78bfa;--violet-rgb:167 139 250;--ok:#2fbf85;--err:#f07178;
+  --violet:#a78bfa;--violet-rgb:167 139 250;--ok:#2fbf85;--err:#f07178;--amber:#f5b544;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,Monaco,Consolas,monospace;
 }
@@ -102,6 +102,54 @@ tr.learner .rate .val{background:var(--violet)}
 .next{padding:14px 16px;border-radius:14px;border:1px solid var(--border);background:var(--glass)}
 .next ol{margin:0;padding-left:20px;color:var(--ink-2);font:500 13px/1.6 var(--sans)}
 .next b{color:var(--ink)}
+
+/* the edge check's neural network */
+.netPanel{display:flex;flex-direction:column;gap:12px;padding-top:6px}
+.netGrid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px}
+.netCard,.netSide{min-width:0;padding:14px;border-radius:14px;border:1px solid var(--border);background:rgb(0 0 0 / 16%)}
+.netSide{display:flex;flex-direction:column;gap:14px}
+.netSvg{display:block;width:100%;height:auto}
+.netEdge{fill:none;stroke-linecap:round}
+.netNode circle{stroke:rgb(255 255 255 / 30%);stroke-width:1.2}
+.netNode circle.glow{stroke:var(--violet);filter:drop-shadow(0 0 5px rgb(var(--violet-rgb) / 70%))}
+.netAct{font:600 9.5px var(--mono);fill:var(--ink);text-anchor:middle;pointer-events:none}
+.netLabel{font:500 11px var(--mono);fill:var(--muted)}
+.netHead{font:700 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;fill:var(--faint)}
+.netTiles{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.netLoss{display:block;width:100%;height:90px;border-radius:10px;background:rgb(0 0 0 / 22%)}
+.netScrub{width:100%;accent-color:var(--violet)}
+.netPanel .say{margin:6px 0 0}
+.okT{color:var(--ok)}.badT{color:var(--err)}
+@media (max-width:1000px){.netGrid{grid-template-columns:1fr}}
+.dot.amber{background:var(--amber)}
+.amberT{color:var(--amber)}.posT{color:#c4b1fd!important}.negT{color:#8fe9ff!important}
+.netHit{fill:none;stroke:transparent;stroke-width:7;pointer-events:stroke;cursor:pointer}
+.netHit:hover{stroke:rgb(255 255 255 / 10%)}
+.netNode{cursor:pointer;outline:none}
+.netNode:hover circle,.netNode:focus-visible circle{stroke:var(--ink);stroke-width:2}
+.netNode.edited circle{stroke:var(--amber);stroke-width:2.5}
+.netNode.edited .netLabel{fill:var(--amber)}
+.netNode.off{opacity:.4}
+.netWhatif{padding:8px 10px;border-radius:10px;border:1px solid rgb(245 181 68 / 40%);background:rgb(245 181 68 / 8%)}
+.netWhatif .btn{margin-left:8px}
+.hint .btn{margin-left:8px}
+.netModal{width:min(980px,calc(100vw - 32px));max-height:calc(100vh - 48px);padding:0;border-radius:16px;border:1px solid var(--border-2);background:#0d1118;color:var(--ink);box-shadow:0 20px 60px rgb(0 0 0 / 60%)}
+.netModal::backdrop{background:rgb(0 0 0 / 55%);backdrop-filter:blur(2px)}
+.netModalHead{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border);background:#0d1118}
+.netModalHead small{font:700 9.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.netModalHead h2{margin:4px 0;font:700 20px/1.2 var(--sans)}
+.netModalHead span{color:var(--muted);font:500 12.5px/1.45 var(--sans)}
+.netModalCtl{display:flex;flex-direction:column;gap:10px;padding:12px 18px;border-bottom:1px solid var(--border);background:rgb(245 181 68 / 4%)}
+.netTune{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.netTune label{display:inline-flex;align-items:center;gap:10px;color:var(--ink-2);font:600 12.5px/1.3 var(--sans)}
+.netTune label i{font-style:normal;font-weight:500;color:var(--faint);margin-left:4px}
+.netTune input[type="number"]{width:150px;height:30px;padding:0 9px;border-radius:8px;border:1px solid rgb(245 181 68 / 50%);background:#0a0d13;color:var(--ink);font:600 13px/1 var(--mono)}
+.netModalBody{display:flex;flex-direction:column;gap:10px;padding:14px 18px 18px}
+.netModalBody h3{margin:8px 0 0}
+.netEq{padding:10px 12px;border-radius:10px;background:rgb(0 0 0 / 25%);color:var(--ink-2);font:500 12.5px/1.7 var(--mono);overflow-wrap:anywhere}
+.netEq b{color:var(--ink)}
+.netEq small{display:block;margin-top:4px;color:var(--faint);font:500 11.5px/1.45 var(--sans)}
+.table tr.editedRow td{background:rgb(245 181 68 / 8%)}
 
 /* a forecast's replay */
 .replay{padding:14px;border-radius:14px;border:1px solid var(--border);background:rgb(0 0 0 / 16%)}

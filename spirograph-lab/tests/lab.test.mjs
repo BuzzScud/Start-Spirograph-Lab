@@ -56,6 +56,11 @@ test('series, sessions, a built day and a graded range', async t => {
   assert.equal(grade.runs.length, 16);
   assert.ok(grade.runs[0].at > grade.runs[15].at, 'newest first');
   assert.equal(grade.edge.ready, false, 'too few for the edge check');
+  assert.equal(grade.stale, false);
+  assert.equal(grade.netRows.length, grade.net.rows, 'the page gets the rows the network was trained on');
+  assert.ok(grade.netRows.every(r => r.x.length === 12));
+  assert.equal(grade.net.ready, false);
+  assert.ok(grade.net.fingerprint);
   const fc = lab.get('forecast', q({ series: U, key: g.key, at: grade.runs[0].at })).body;
   assert.equal(fc.run.pen.length, 181);
   assert.ok(fc.closes.length > 200);

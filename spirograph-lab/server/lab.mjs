@@ -5,7 +5,7 @@
 //   GET  status                          the jobs, newest first
 //   GET  day?series=&open=               a built day (lab/labDay.js)
 //   GET  grades?series=                  the saved multi-day grades, newest first
-//   GET  grade?series=&key=              one grade: its scorecard, edge check and every forecast in brief
+//   GET  grade?series=&key=              one grade: its scorecard, edge check, neural network rows and every forecast in brief
 //   GET  forecast?series=&key=&at=       one forecast of a grade, with the closes around it
 //   POST day {series, open, rebuild}     build a day (a built one is answered at once unless rebuild)
 //   POST grade {series, from, to}        grade every 3-hour slot in [from, to)
@@ -13,7 +13,7 @@
 // Jobs run one at a time in a worker thread (worker.mjs), queued in order; `inline` runs them in place (the tests).
 import { Worker } from 'node:worker_threads';
 import { openLabStore } from './labStore.mjs';
-import { runLabJob } from './labJob.mjs';
+import { runLabJob, GRADE_VERSION } from './labJob.mjs';
 import { DAY_MIN, DAY_VERSION, MIN_DAY_BARS, sessionOpen } from '../lab/labDay.js';
 import { HORIZON_MIN } from '../engine/dailyTest.js';
 import { isFront, parseContract } from '../lab/labSeries.js';
@@ -116,7 +116,7 @@ export function createLab({ bankFile, labFile, log = () => {}, inline = false, n
         const r = series && lab.result('grade', series, q.get('key') || '');
         if (!r) return { status: 404, body: { error: 'no such grade' } };
         const { items, ...rest } = r.data;
-        return { status: 200, body: { made: r.made, ...rest, runs: items.map(brief).reverse() } };
+        return { status: 200, body: { made: r.made, ...rest, stale: (rest.v || 1) < GRADE_VERSION, runs: items.map(brief).reverse() } };
       }
       case 'forecast': {
         const r = series && lab.result('grade', series, q.get('key') || ''), at = Number(q.get('at'));

@@ -1,8 +1,10 @@
 // The Spirograph Lab's page (16 Sep): three views of the Daily set circles on one instrument.
 //   Day player       any banked session replayed a minute at a time, refit and held (lab/labPlayer.js)
 //   Multi-day grade  every 3-hour forecast in a range, scored against no-skill guesses (server/labJob.mjs)
-//   Edge check       whether a small learner finds anything in those forecasts (lab/labEdge.js)
+//   Edge check       whether a small learner finds anything in those forecasts (lab/labEdge.js), and a neural network
+//                    trained live on them (lab/labNet.js, public/net.js)
 import { createLabPlayer } from '/lab/labPlayer.js';
+import { createNetPanel } from '/net.js';
 import { esc, when, hm, tradeDay, isoDay, dayMonth, pct, sgn, int, arrow } from '/lab/util.js';
 import { COLORS } from '/engine/constants.js';
 import { nyEpoch } from '/engine/levels.js';
@@ -36,6 +38,7 @@ const st = {
   jobs: [], watching: new Map(), pollTimer: 0,
 };
 const player = createLabPlayer($('player'));
+const netPanel = createNetPanel($('eNet'));
 
 // ---------------------------------------------------------------- tabs
 function setTab(tab) {
@@ -45,6 +48,7 @@ function setTab(tab) {
   for (const b of document.querySelectorAll('#tabs [data-tab]')) { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }
   for (const t of TABS) $('pane-' + t).hidden = t !== st.tab;
   if (st.tab === 'day' && st.day) player.show(); else player.hide();
+  if (st.tab !== 'edge') netPanel.stop();
 }
 $('tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
 $('tabs').addEventListener('keydown', e => {
@@ -246,17 +250,19 @@ function paintReplay({ run, grade: g, closes: all }) {
 // ---------------------------------------------------------------- edge check
 function paintEdge() {
   const g = st.grade;
-  if (!g) { $('eBody').hidden = true; $('eMsg').textContent = 'No grade picked. Run one on Multi-day grade first: the check reads its forecasts.'; return; }
+  if (!g) { $('eBody').hidden = true; $('eMsg').textContent = 'No grade picked. Run one on Multi-day grade first: the check reads its forecasts.'; netPanel.set(null); return; }
   const e = g.edge;
   $('eMsg').textContent = ''; $('eBody').hidden = false;
+  netPanel.set(g);
   $('eHead').innerHTML = `<b class="word ${e.ready ? (e.edge ? 'ok' : 'bad') : ''}">${dot(e.ready ? e.edge : null)}${!e.ready ? 'Too few forecasts' : e.edge ? 'Something to look at' : 'Nothing to learn yet'}</b><span>${esc(g.name)} · ${span(g.from, g.to)} · ${esc(e.verdict)}</span>`;
   if (!e.ready) { $('eTable').innerHTML = ''; $('eNote').textContent = ''; return; }
+  const nn = g.net && g.net.tested ? [{ key: 'net', label: 'Neural network (circles + pen time)', hits: g.net.hits, n: g.net.tested, rate: g.net.rate, points: g.net.points }] : [];
   const base = e.baselines[0].rate, lo = 0.3, hi = 0.7, P = v => `${(100 * (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)).toFixed(1)}%`;
   const bar = r => `<div class="rate" title="${pct(r)}"><i class="band" style="left:${P(base - e.noise)};width:calc(${P(base + e.noise)} - ${P(base - e.noise)})"></i><i class="base" style="left:${P(base)}"></i><i class="val" style="left:${P(r)}"></i></div>`;
   const row = (x, kind) => `<tr class="${kind}"><td>${esc(x.label)}${kind === 'base' ? ' <i>yardstick</i>' : ''}</td><td>${x.hits} / ${x.n}</td><td>${pct(x.rate)}</td><td>${bar(x.rate)}</td>`
     + `<td class="${kind === 'base' && x.key === 'usual' ? 'muted' : x.rate - base > e.noise ? 'ok' : ''}">${x.key === 'usual' ? '—' : `${x.rate >= base ? '+' : '−'}${Math.abs(Math.round(100 * (x.rate - base)))} pts`}</td><td class="${x.points == null ? 'muted' : x.points >= 0 ? 'ok' : 'bad'}">${x.points == null ? '—' : sgn(x.points)}</td></tr>`;
   $('eTable').innerHTML = `<table><thead><tr><th>Who calls the direction</th><th>Right</th><th>Rate</th><th>Against the usual way <i>(band: chance)</i></th><th>Beyond usual way</th><th>Points, 1 lot</th></tr></thead><tbody>`
-    + e.baselines.map(x => row(x, 'base')).join('') + e.learners.map(x => row(x, 'learner')).join('') + '</tbody></table>';
+    + e.baselines.map(x => row(x, 'base')).join('') + [...e.learners, ...nn].map(x => row(x, 'learner')).join('') + '</tbody></table>';
   $('eNote').innerHTML = `Each learner calls ${e.tested} forecasts, after learning from the first ${e.warm}. With that many calls, chance alone moves a rate by about <b>±${Math.round(100 * e.noise)} points</b> (the shaded band). A learner shows an edge only outside it. “Points, 1 lot” adds up the 3-hour moves each caller would have caught or lost.`;
 }
 
