@@ -93,8 +93,8 @@ function paintDayBar() {
   btn.disabled = !d || !!job;
   btn.textContent = job ? (job.status === 'queued' ? 'Waiting…' : `Building ${Math.round(100 * job.done / Math.max(1, job.total))}%`) : d && d.built ? 'Rebuild' : 'Build';
   $('dayHint').textContent = !d ? '' : d.built
-    ? `built ${when(d.built.made)} · held pen missed by ±${d.built.held.toFixed(1)}, a flat line at the first print by ±${d.built.flatFirst.toFixed(1)}`
-    : job ? 'about 15 seconds: every minute of the day is refitted' : 'not built yet: Build replays it (about 15 seconds)';
+    ? `built ${when(d.built.made)} · the 6 pm pen missed by ±${d.built.held.toFixed(1)}, the 6 pm price kept flat by ±${d.built.flat.toFixed(1)}`
+    : job ? 'a few seconds: the pen is fitted at every quarter-hour' : 'not built yet: Build fits the pen at every quarter-hour (a few seconds)';
 }
 $('daySel').addEventListener('change', e => { const v = Number(e.target.value); if (!v) return; store.set('day.' + st.series, v); openDay(v); });
 async function openDay(open) {
@@ -119,7 +119,7 @@ $('dayBuild').addEventListener('click', async () => {
   try {
     const r = await api('day', { series: st.series, open, rebuild: !!(d && d.built) });
     if (r.cached) return openDay(open);
-    if (!st.day || st.dayOpen !== open) $('dayMsg').textContent = 'Building this day… about 15 seconds.';
+    if (!st.day || st.dayOpen !== open) $('dayMsg').textContent = 'Building this day… a few seconds.';
     watch(r.id, async job => { if (job.status === 'done') { await loadDays(open); } else toast(`${tradeDay(open)}: ${job.detail || job.status}`, true); paintDayBar(); });
   } catch (e) { toast(e.message, true); }
 });

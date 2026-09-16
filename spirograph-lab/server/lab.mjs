@@ -14,7 +14,7 @@
 import { Worker } from 'node:worker_threads';
 import { openLabStore } from './labStore.mjs';
 import { runLabJob } from './labJob.mjs';
-import { DAY_MIN, MIN_DAY_BARS, sessionOpen } from '../lab/labDay.js';
+import { DAY_MIN, DAY_VERSION, MIN_DAY_BARS, sessionOpen } from '../lab/labDay.js';
 import { HORIZON_MIN } from '../engine/dailyTest.js';
 import { isFront, parseContract } from '../lab/labSeries.js';
 import { nyEpoch } from '../engine/levels.js';
@@ -76,7 +76,8 @@ export function createLab({ bankFile, labFile, log = () => {}, inline = false, n
     const open = Number(b.open);
     if (!Number.isFinite(open) || sessionOpen(open) !== open) throw new Error('open must be a session’s 6 pm');
     if (open + DAY_MIN * M > now) throw new Error('that session has not ended yet');
-    if (!b.rebuild && lab.result('day', series, open)) return { cached: true };
+    const had = lab.result('day', series, open);
+    if (!b.rebuild && had && had.data.v === DAY_VERSION) return { cached: true };   // a day built the old way is built again
     return { id: enqueue('day', series, open, { open }) };
   }
   function startGrade(b) {
@@ -92,7 +93,7 @@ export function createLab({ bankFile, labFile, log = () => {}, inline = false, n
     explained: run.fit.explained, n: g.n, actual: g.actual, dirHit: g.dirHit, hits: g.hits, graded: g.graded, mae: g.mae, flatMae: g.flatMae });
 
   function days(series) {
-    const built = new Map(lab.results('day', series).map(r => [Number(r.key), r])), now = clock();
+    const built = new Map(lab.results('day', series).filter(r => r.head && r.head.v === DAY_VERSION).map(r => [Number(r.key), r])), now = clock();
     return lab.sessions(series).map(s => {
       const open = openOfDay(s.day), b = built.get(open);
       return { open, n: s.n, contract: s.contract, over: open + DAY_MIN * M <= now, ok: s.n >= MIN_DAY_BARS, built: b ? { made: b.made, ...b.head } : null };
@@ -108,7 +109,7 @@ export function createLab({ bankFile, labFile, log = () => {}, inline = false, n
       case 'days': return series ? { status: 200, body: { series, days: days(series) } } : { status: 400, body: { error: 'series required' } };
       case 'day': {
         const r = series && lab.result('day', series, Number(q.get('open')));
-        return r ? { status: 200, body: { made: r.made, day: r.data } } : { status: 404, body: { error: 'that day is not built' } };
+        return r && r.data.v === DAY_VERSION ? { status: 200, body: { made: r.made, day: r.data } } : { status: 404, body: { error: 'that day is not built' } };
       }
       case 'grades': return series ? { status: 200, body: { grades: lab.results('grade', series) } } : { status: 400, body: { error: 'series required' } };
       case 'grade': {

@@ -2,9 +2,9 @@
 
 A standalone app for the Spirograph's Daily set circles (1D · 4H · 2H · 24m · 12m · 6m). It has three views:
 
-- **Day player:** pick any stored day and watch the circles replay it minute by minute. Two fits:
-  - *refit each minute* is what the Spirograph showed live.
-  - *held from 6 pm* keeps the 6 pm circles all day, which makes it a real forward test.
+- **Day player:** pick any stored day and watch the circles replay it minute by minute.
+  - The pen is always **held**: fitted once at the time on the green **Pen from** button: 6 pm (the Globex open) by default. Its menu offers the London open, the New York open and close, your own time, or a box to type any quarter-hour. It's fitted only on bars before that time, then kept to 6 pm.
+  - Under the circles, an overview of the whole day and a 2/4/8-hour close-up that follows the playhead. Click or drag either to move; hover the close-up to read any minute. Slow (turtle) plays a day in 3 minutes, fast (rabbit) in 30 seconds.
 - **Multi-day grade:** pick a date range. Every 3 hours in it, the circles forecast the next 3 hours using only earlier prices, and each forecast is checked against the market. The page gives one verdict: path vs a flat line, direction vs always guessing the usual way, turns vs a random market.
 - **Edge check:** tests whether a small learner can find anything in those forecasts. If it can't, a neural network would only memorise noise.
 
@@ -24,7 +24,7 @@ It needs Node 24 or newer and has no packages to install. Stop it with Ctrl-C in
 - **Prices:** the Ladder's stored 1-minute bars in `~/Desktop/MAIN2026/desks/ladder/data/ladder.db`, opened **read-only**. The Lab never writes there.
   - It sees new days as the Ladder stores them.
   - Set `LAB_BANK` to use another copy.
-- **Results:** built days and grades are saved in `data/lab.db` in this folder (`LAB_DB` to move it). A day takes about 15 s to build the first time and opens at once after that.
+- **Results:** built days and grades are saved in `data/lab.db` in this folder (`LAB_DB` to move it). A day takes a few seconds to build the first time (a held pen from every quarter-hour) and opens at once after that. Days built by an older version are built again when opened.
 - **Instruments:**
   - **Front month** stitches a product's contracts together. Each session uses whichever contract traded the most in the session before. At a roll, older prices are shifted by the gap between the two contracts, so price moves (and grades) are unchanged.
   - **Single contract** reads one contract only.
@@ -43,7 +43,7 @@ npm test
 ```
 server/   server.mjs (http + static), lab.mjs (API + job queue), labJob.mjs, worker.mjs, labStore.mjs
 lab/      labDay.js (day replay), labEdge.js (edge check), labSeries.js (front month), labPlayer.js, util.js
-public/   index.html, app.js, style.css
+public/   index.html, app.js, style.css (turtle and rabbit icons: Lucide, ISC)
 engine/   the Ladder's engine, copied
 tests/    npm test
 ```

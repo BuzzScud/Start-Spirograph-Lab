@@ -1,10 +1,10 @@
-// The Spirograph Lab's day player (16 Sep, on request: "any stored day, both fits"): one session, 6 pm to 6 pm New York,
-// replayed a minute at a time through the Daily set's own sim (dailyTest.js dailySim: the circles on the 6 pm day clock,
-// the trend on Globex's traded minutes), as the Spirograph would have drawn it live.
+// The Spirograph Lab's day player (16 Sep): one session, 6 pm to 6 pm New York, through the Daily set's own sim
+// (engine/dailyTest.js dailySim: the circles on the 6 pm day clock, the trend on Globex's traded minutes).
 //
-//   refit  each minute that closed a bar, the circles are fitted again on every close up to it: what the app showed.
-//          Its pen has seen the market it is measured against, so its miss is not a forecast.
-//   held   the circles as fitted at 6 pm on the bars before the open, kept all day: a forward test.
+// The pen is only ever HELD (16 Sep, on request: "only allow held from 6 pm, with the ability to edit that to 1 other
+// time"): the circles are fitted once at a hold time, on the bars that closed before it and nothing later, then kept
+// for the rest of the day. A day is built with a hold at every quarter-hour, so the player can hold from 6 pm or from
+// any one other quarter-hour without building again. Before its hold time a pen has nothing to say.
 //
 // Built from the first Monday 14 Sep replay (a scratchpad page, 15 Sep). Pure: no DOM, no database.
 import { MAXL } from '../engine/constants.js';
@@ -15,17 +15,22 @@ import { openBefore } from '../engine/dayClock.js';
 
 const M = 60000;
 export const DAY_MIN = 1440;
+export const DAY_VERSION = 2;        // 1: refit each minute + one 6 pm hold; 2: a hold every quarter-hour
+export const HOLD_EVERY = 15;        // minutes between the holds a day is built with
+export const PEN_STEP = 5;           // minutes between a held pen's stored points
 export const MIN_DAY_BARS = 60;      // a session with fewer traded minutes is not worth a replay
 export const MIN_PRE_BARS = 1000;    // bars before the open the fit needs (about 17 traded hours)
 const r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
 
 /** The 6 pm New York open of the session holding `ms`. */
 export const sessionOpen = ms => openBefore(ms).ms;
+/** A hold time the player accepts: a quarter-hour from 6 pm up to the last one before the break. */
+export const normHold = h => Math.max(0, Math.min(DAY_MIN - 60 - HOLD_EVERY, Math.round(h / HOLD_EVERY) * HOLD_EVERY));
 
 /**
- * Replay the session opening at `open` (epoch ms, a 6 pm New York) from ascending one-minute `bars` covering
+ * Build the session opening at `open` (epoch ms, a 6 pm New York) from ascending one-minute `bars` covering
  * HISTORY_WEEKS before it through its end. { day } or { refused: 'no-bars' | 'history' | 'no-fit', have }.
- * `progress(k)` is called every 60 minutes replayed.
+ * `progress(k)` is called after each hour of holds.
  */
 export function replayDay({ bars, open, name = '', progress = () => {} }) {
   const end = open + DAY_MIN * M, t0 = weekStartNy(open, HISTORY_WEEKS);
@@ -36,50 +41,54 @@ export function replayDay({ bars, open, name = '', progress = () => {} }) {
   sim.startLive({ contract: name, name, t0, weeks: HISTORY_WEEKS });
   sim.setLevels(MAXL);
   let bi = 0;
-  const take = T => { const got = []; while (bi < all.length && all[bi].t + M <= T) got.push(all[bi++]); if (got.length) sim.ingestBars(got); return got.length; };
-  const amps = () => Array.from({ length: MAXL }, (_, n) => r3(sim.G.lever[n] * sim.G.scale));
+  const take = T => { const got = []; while (bi < all.length && all[bi].t + M <= T) got.push(all[bi++]); if (got.length) sim.ingestBars(got); };
   const tOf = T => (T - t0) / M;
 
-  // the fit as it stood when the last bar before the open closed: nothing from the day has been read
-  take(open);
-  const last = pre[pre.length - 1];
-  sim.advanceLiveTo(open);
-  const fit0 = sim.refit();
-  if (!fit0) return { refused: 'no-fit', have: pre.length };
-  const held = { A: amps(), pen: [] };
-  for (let k = 0; k <= DAY_MIN; k++) held.pen.push(r2(sim.modelAt(tOf(open + k * M), MAXL - 1)));
-  const trend = fit0.drift * (sim.driftOf(tOf(open)) - sim.driftOf(tOf(last.t + M)));
+  const mkt = new Array(DAY_MIN + 1).fill(null);   // the close of the minute that ended at open + k
+  for (const b of day) mkt[(b.t + M - open) / M] = b.c;
 
-  const F = { A: [], pen: [], mkt: [], expl: [], rms: [] };
-  for (let k = 0; k <= DAY_MIN; k++) {
-    const T = open + k * M, got = k ? take(T) : 0;
+  const holds = {};
+  for (let h = 0; h <= normHold(DAY_MIN); h += HOLD_EVERY) {
+    const T = open + h * M;
+    take(T);
     sim.advanceLiveTo(T);
-    if (got) sim.refit();
-    const fit = sim.live.fit, b = all[bi - 1];
-    F.A.push(k ? amps() : held.A);
-    F.pen.push(k ? r2(sim.modelAt(tOf(T), MAXL - 1)) : held.pen[0]);
-    F.mkt.push(b && b.t === T - M && b.t >= open ? b.c : null);
-    F.expl.push(fit && fit.statN ? r3(fit.explained) : null);
-    F.rms.push(fit && fit.statN ? r2(fit.rms) : null);
-    if (k && k % 60 === 0) progress(k);
+    const fit = sim.refit();
+    if (!fit) { if (h === 0) return { refused: 'no-fit', have: pre.length }; continue; }
+    const last = all[bi - 1], pen = [];
+    for (let k = h; k <= DAY_MIN; k += PEN_STEP) pen.push(r2(sim.modelAt(tOf(open + k * M), MAXL - 1)));
+    holds[h] = {
+      A: Array.from({ length: MAXL }, (_, n) => r3(sim.G.lever[n] * sim.G.scale)), pen,
+      close: last.c, closeAt: last.t + M, drift: r3(fit.drift),
+      trend: r2(fit.drift * (sim.driftOf(tOf(T)) - sim.driftOf(tOf(last.t + M)))),   // what the trend adds between that close and the hold
+      explained: fit.statN ? r3(fit.explained) : null, rms: fit.statN ? r2(fit.rms) : null,
+    };
+    if (h && h % 60 === 0) progress(h);
   }
-  return {
-    day: {
-      v: 1, name, open, periods: DAILY_PERIODS.slice(), frames: F, held,
-      pre: { close: last.c, at: last.t + M, drift: r3(fit0.drift), trend: r2(trend) },
-      bars: { pre: pre.length, day: day.length },
-    },
-  };
+  return { day: { v: DAY_VERSION, name, open, periods: DAILY_PERIODS.slice(), every: HOLD_EVERY, step: PEN_STEP, mkt, holds, bars: { pre: pre.length, day: day.length } } };
 }
 
-/** The day's numbers the rail shows: each pen's root-mean-square miss beside two flat lines. */
-export function dayScore(d) {
-  const F = d.frames, N = F.pen.length - 1, first = F.mkt.find(v => v != null);
-  const rms = pick => { let ss = 0, c = 0; for (let k = 0; k <= N; k++) { const m = F.mkt[k]; if (m == null) continue; const e = m - pick(k); ss += e * e; c++; } return c ? Math.sqrt(ss / c) : NaN; };
-  let lastMkt = null; for (let k = N; k >= 0 && lastMkt == null; k--) lastMkt = F.mkt[k];
+/** The pen held from minute `h`, at minute `k` of the day; null before its hold (or for a hold the day lacks). */
+export function penAt(day, h, k) {
+  const x = day.holds[h];
+  if (!x || k < h) return null;
+  const f = (k - h) / day.step, i = Math.floor(f), a = x.pen;
+  return i >= a.length - 1 ? a[a.length - 1] : a[i] + (a[i + 1] - a[i]) * (f - i);
+}
+
+/** How the pen held from `h` did over the rest of the day: its root-mean-square miss beside the hold price kept flat. */
+export function holdScore(day, h) {
+  const x = day.holds[h];
+  if (!x) return null;
+  let ss = 0, sf = 0, n = 0, first = null, last = null;
+  for (let k = h + 1; k <= DAY_MIN; k++) {
+    const m = day.mkt[k]; if (m == null) continue;
+    if (first == null) first = m;
+    last = m;
+    const e = m - penAt(day, h, k), f = m - x.close; ss += e * e; sf += f * f; n++;
+  }
+  const penEnd = x.pen[x.pen.length - 1];
   return {
-    held: rms(k => d.held.pen[k]), refit: rms(k => F.pen[k]), flatPrev: rms(() => d.pre.close), flatFirst: rms(() => first),
-    first, last: lastMkt, move: first == null || lastMkt == null ? null : lastMkt - first,
-    heldMove: d.held.pen[N] - d.held.pen[0],
+    n, held: n ? Math.sqrt(ss / n) : NaN, flat: n ? Math.sqrt(sf / n) : NaN, first, last,
+    move: first == null ? null : last - x.close, penMove: penEnd - x.pen[0], start: x.pen[0], close: x.close,
   };
 }

@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLab, normSeries } from '../server/lab.mjs';
+import { penAt, holdScore, DAY_VERSION } from '../lab/labDay.js';
 import { nyEpoch } from '../engine/levels.js';
 import { synthBars, makeBank } from './helpers.mjs';
 
@@ -28,10 +29,24 @@ test('series, sessions, a built day and a graded range', async t => {
   assert.ok(r.id);
   assert.equal(lab.lab.job(r.id).status, 'done', lab.lab.job(r.id).detail);
   const day = lab.get('day', q({ series: U, open })).body.day;
-  assert.equal(day.frames.pen.length, 1441);
-  assert.equal(day.held.pen.length, 1441);
-  assert.ok(day.frames.mkt.filter(v => v != null).length >= 1300);
+  assert.equal(day.v, DAY_VERSION);
+  assert.equal(day.mkt.length, 1441);
+  assert.ok(day.mkt.filter(v => v != null).length >= 1300);
+  assert.deepEqual(Object.keys(day.holds).map(Number).sort((a, b) => a - b), Array.from({ length: 92 }, (_, i) => i * 15), 'a hold every quarter-hour from 6 pm to 4:45 pm');
+  assert.equal(day.holds[0].pen.length, 289, 'the 6 pm pen, every 5 minutes to 6 pm');
+  assert.equal(day.holds[930].pen.length, (1440 - 930) / 5 + 1);
+  assert.equal(penAt(day, 930, 929), null, 'no pen before its hold');
+  assert.equal(penAt(day, 930, 930), day.holds[930].pen[0]);
+  assert.ok(Math.abs(penAt(day, 0, 2) - (day.holds[0].pen[0] + 0.4 * (day.holds[0].pen[1] - day.holds[0].pen[0]))) < 1e-9, 'between stored points');
+  const sc = holdScore(day, 930);
+  assert.ok(sc.n > 400 && sc.held > 0 && sc.flat > 0);
+  assert.ok(day.holds[930].close > 0 && day.holds[930].closeAt <= open + 930 * 60000, 'the hold price is a close from before the hold');
   assert.deepEqual(lab.startDay({ series: U, open }), { cached: true }, 'a built day is not built again');
+  lab.lab.putResult('day', U, open, { v: 1 }, { ...day, v: 1 });
+  assert.equal(lab.get('day', q({ series: U, open })).status, 404, 'a day built the old way is not served');
+  assert.equal(lab.days(U).find(d => d.open === open).built, null);
+  assert.ok(lab.startDay({ series: U, open }).id, 'and is built again');
+  assert.equal(lab.get('day', q({ series: U, open })).body.day.v, DAY_VERSION);
   assert.ok(lab.days(U).find(d => d.open === open).built);
 
   const g = lab.startGrade({ series: U, from: nyEpoch(2026, 9, 1, 18), to: nyEpoch(2026, 9, 3, 18) });
