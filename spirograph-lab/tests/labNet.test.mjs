@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createNet, train, forward, netWalk, netCheck, netScore, explain, snapshot, withMask, WARM } from '../lab/labNet.js';
+import { createNet, train, forward, netWalk, netCheck, netScore, explain, snapshot, withMask, pUp, solveInput, tweakRows, WARM } from '../lab/labNet.js';
 
 const rng = seed => () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 // twelve inputs; with `signal` the direction is XOR-shaped in the first two (no straight line splits it) and the size follows the third
@@ -69,4 +69,38 @@ test('an input left out of training is 0 to the network, and makes a different r
   const net = createNet(12, withMask(mask)); train(net, data, 100, 50, withMask(mask));
   const a = forward(net, data[120].x), b = forward(net, data[120].x.map((x, j) => (j === 0 ? x + 1e6 : x)));
   assert.equal(a.p, b.p, 'the left-out input cannot move the answer');
+});
+
+test('a preset finds the input value that gives the P(up) asked for, nearest the real value', () => {
+  const data = rows(160, true, 11), net = createNet(12);
+  train(net, data, 160, 300);
+  const snap = snapshot(net), x = data[3].x;
+  assert.ok(Math.abs(pUp(snap, x) - explain(snap, x).p) < 1e-12);
+  let reached = 0;
+  for (const target of [0.1, 0.3, 0.5, 0.7, 0.9]) for (let j = 0; j < 3; j++) {
+    const r = solveInput(snap, x, j, target);
+    if ('v' in r) {
+      reached++;
+      assert.ok(Math.abs(r.p - target) < 1e-9, `input ${j} to ${target}: got ${r.p}`);
+      // no closer crossing: P(up) stays on one side of the target between the real value and the answer
+      const xx = x.slice(), side = pUp(snap, x) > target;
+      for (let k = 1; k < 200; k++) { xx[j] = x[j] + (r.v - x[j]) * k / 200; assert.equal(pUp(snap, xx) > target, side, `crossing before the answer, input ${j} to ${target}`); }
+    } else assert.ok(r.lo <= r.hi && (target < r.lo || target > r.hi), `unreachable ${target} should be outside ${r.lo}–${r.hi}`);
+  }
+  assert.ok(reached > 0, 'at least one target is reachable');
+  const off = createNet(12, withMask(Array.from({ length: 12 }, (_, j) => (j === 1 ? 0 : 1))));
+  train(off, data, 160, 50, withMask(Array.from({ length: 12 }, (_, j) => (j === 1 ? 0 : 1))));
+  assert.equal(solveInput(snapshot(off), x, 1, 0.5), null, 'an input left out cannot move the answer');
+});
+
+test('retrain variants: shuffle keeps the values but breaks the link, negate flips the sign, none leaves the rows alone', () => {
+  const data = rows(300, true), before = JSON.stringify(data);
+  assert.equal(tweakRows(data, {}), data);
+  const sh = tweakRows(data, { 0: 'shuffle' }), ng = tweakRows(data, { 1: 'negate' });
+  assert.equal(JSON.stringify(data), before, 'the grade rows are not changed');
+  assert.deepEqual(sh.map(r => r.x[0]).sort(), data.map(r => r.x[0]).sort());
+  assert.notDeepEqual(sh.map(r => r.x[0]), data.map(r => r.x[0]));
+  assert.deepEqual(tweakRows(data, { 0: 'shuffle' }), sh, 'seeded');
+  ng.forEach((r, i) => { assert.equal(r.x[1], -data[i].x[1]); assert.deepEqual(r.x.slice(2), data[i].x.slice(2)); });
+  assert.equal(netCheck(sh).dirEdge, false, 'with its XOR half shuffled away the planted direction is gone');
 });

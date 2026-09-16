@@ -10,6 +10,7 @@ A standalone app for the Spirograph's Daily set circles (1D · 4H · 2H · 24m �
   - Below it, a real **neural network** (12 inputs → 8 hidden → up and size) trains live in the page on the grade's forecasts. Its inputs are the circles' numbers and the time the pen was frozen. It learns only from forecasts before each call.
   - The server trains the same network when the grade is built. When the page finishes, it checks that its run matches the server's.
   - Grades built before the network show "Rebuild the grade": grade the same range again.
+  - Click any node or line for its math on the call shown. An input opens a two-column pop-up. On the left: a what-if value for that call, presets (flip the call, or P(up) 10–90%) that show the value each one needs, and a retrain switch (Real, Shuffled, Negated, Left out). On the right: the answer, a curve of P(up) for every value of that input with each preset pinned on it, and the math in four steps. What-if edits never touch training; a retrain is marked as not comparable to the server's run.
 
 ## Start it
 
@@ -46,7 +47,7 @@ npm test
 ```
 server/   server.mjs (http + static), lab.mjs (API + job queue), labJob.mjs, worker.mjs, labStore.mjs
 lab/      labDay.js (day replay), labEdge.js (edge check), labNet.js (neural network), labSeries.js (front month), labPlayer.js, util.js
-public/   index.html, app.js, net.js (network panel), style.css (turtle and rabbit icons: Lucide, ISC)
+public/   index.html, app.js, net.js (network panel), style.css (turtle, rabbit and pop-up icons: Lucide, ISC)
 engine/   the Ladder's engine, copied
 tests/    npm test
 ```

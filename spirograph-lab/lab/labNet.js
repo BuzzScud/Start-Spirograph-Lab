@@ -164,6 +164,63 @@ export function explain(n, x, row = null) {
   return out;
 }
 
+/** P(up) of raw input `x` through snapshot `n` (explain's first output, without the working). */
+export function pUp(n, x) {
+  const { d, h } = n;
+  let o = n.b2[0];
+  for (let k = 0; k < h; k++) { let s = n.b1[k]; for (let j = 0; j < d; j++) s += n.W1[k * d + j] * ((x[j] - n.mu[j]) / n.sd[j] * n.mask[j]); o += n.W2[k] * sig(s); }
+  return sig(o);
+}
+
+/**
+ * The value of input j that gives P(up) = `target`, the other inputs as in `x`: the root nearest `anchor` (the real
+ * value, so the smallest change). P(up) along one input is a sum of sigmoids, so it can bend back: every crossing within
+ * ±30 spreads of the training mean is found on a grid, then bisected. { v, p } when reachable; { lo, hi } (the P(up) it
+ * can reach) when not; null for an input left out of training (it cannot move the answer).
+ */
+export function solveInput(n, x, j, target, anchor = x[j]) {
+  if (!n.mask[j]) return null;
+  const xx = Array.from(x), at = v => { xx[j] = v; return pUp(n, xx) - target; };
+  const STEPS = 1200, a = n.mu[j] - 30 * n.sd[j], w = 60 * n.sd[j] / STEPS;
+  const grid = Array.from({ length: STEPS + 1 }, (_, i) => a + i * w);
+  if (anchor < grid[0] || anchor > grid[STEPS]) { grid.push(anchor); grid.sort((p, q) => p - q); }
+  let best = null, lo = 1, hi = 0, prevV = grid[0], prevF = at(grid[0]);
+  for (let i = 0; i < grid.length; i++) {
+    const v = grid[i], f = i ? at(v) : prevF;
+    lo = Math.min(lo, f + target); hi = Math.max(hi, f + target);
+    let root = f === 0 ? v : null;
+    if (root === null && i && (prevF < 0) !== (f < 0) && prevF !== 0) {
+      let l = prevV, r = v, fl = prevF;
+      for (let k = 0; k < 60; k++) { const m = (l + r) / 2, fm = at(m); if ((fm < 0) === (fl < 0)) { l = m; fl = fm; } else r = m; }
+      root = (l + r) / 2;
+    }
+    if (root !== null && (best === null || Math.abs(root - anchor) < Math.abs(best - anchor))) best = root;
+    prevV = v; prevF = f;
+  }
+  if (best === null) return { lo, hi };
+  xx[j] = best;
+  return { v: best, p: pUp(n, xx) };
+}
+
+/**
+ * Rows for a retrain variant: tweaks[j] 'shuffle' mixes input j across the forecasts (seeded, so it keeps its values but
+ * loses any link to the outcome) or 'negate' flips its sign (the network could learn it back exactly: any change in the
+ * score is the luck of the seeded start). No tweaks: the same rows, untouched.
+ */
+export function tweakRows(rows, tweaks = {}) {
+  const js = Object.keys(tweaks).map(Number).filter(j => tweaks[j] === 'shuffle' || tweaks[j] === 'negate');
+  if (!js.length) return rows;
+  const out = rows.map(r => ({ ...r, x: r.x.slice() }));
+  for (const j of js) {
+    if (tweaks[j] === 'negate') { for (const r of out) r.x[j] = -r.x[j]; continue; }
+    const r = mulberry32(NET.seed + 1000 + j), order = out.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) { const k = Math.floor(r() * (i + 1)); [order[i], order[k]] = [order[k], order[i]]; }
+    const col = out.map(q => q.x[j]);
+    out.forEach((q, i) => { q.x[j] = col[order[i]]; });
+  }
+  return out;
+}
+
 /** 32-bit FNV-1a over the calls, rounded to 1e-9 so the last bit of an engine's Math.exp cannot split two runs. */
 export function fingerprint(calls) {
   let hsh = 0x811c9dc5;
