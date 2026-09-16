@@ -175,6 +175,18 @@ const STEPS = [
       </div>`,
   },
   {
+    title: 'Turns at the levels', short: 'Turns', show: 'turns',
+    body: () => `
+      <p>Below the circles card, <b>Turns at the levels</b> grades every turn the circles called with a rule that asks first whether the market really turned, and compares <b>two circle families</b> side by side.</p>
+      <div class="ghCards ghCards2">
+        <div><h5>The rule</h5><p>A <b>real turn</b> is a swing high or low on one-minute closes that no close within ⅛ of the circle's lap beats. A <b>call</b> is a circle's next peak or trough, made before the swing's window opened. A <b>hit</b> is a real turn of the same kind within ⅛ lap (at least a minute) of the call.</p></div>
+        <div><h5>Two families</h5><p><b>Daily set</b>: phases locked to 6 pm, only each circle's size fitted, called at each 3-hour slot. <b>Kalman rungs</b>: the Ladder's filter on the same six periods, phases free, each turn called a quarter lap ahead of every closed minute.</p></div>
+        <div><h5>Three nulls</h5><p>The same calls scored at <b>random minutes</b> of their session, at the <b>same clock time a day earlier and later</b> (the Daily set's times repeat every day, so this is its hardest null), and against the real turns <b>shifted</b> round the session. Skill is the rate above the hardest of the three, with a range bootstrapped over sessions.</p></div>
+        <div><h5>Zones and levels</h5><p>Every call is tagged with its <b>ICT kill zone</b> (Asia 8 pm–12 am, London 2–5 am, New York AM 8:30–11, New York PM 1:30–4) and where the market stood against <b>PDH and PDL</b> (the previous day's 00:00–15:00 high and low, the Trading Platform's rule) when the turn was due. With this many cells, a few clear a 95% bar by luck: the verdict says how many to expect.</p></div>
+      </div>
+      <p>The <b>turn network</b> at the bottom is the Edge check's network retargeted: one graded call per row, and it says the odds the call hits. It is scored as a weather forecast is, by its Brier score against always saying the base rate.</p>`,
+  },
+  {
     title: 'Before you trust a result', short: 'Caveats',
     body: () => `
       <ul class="ghList">

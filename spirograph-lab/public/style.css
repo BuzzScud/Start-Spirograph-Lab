@@ -542,7 +542,7 @@ tr.learner .rate .val{background:var(--violet)}
 
 /* ---------------------------------------------------------------- the day player (lab/labPlayer.js) */
 .player{display:flex;flex-direction:column;gap:12px}
-.lpStage{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;height:clamp(324px,calc((100vh - 560px) * .9),774px)}
+.lpStage{display:grid;grid-template-columns:minmax(0,1fr) 340px 380px;gap:12px;height:clamp(324px,calc((100vh - 560px) * .9),774px)}
 .lpSheet,.lpRail{border-radius:14px;border:1px solid var(--border);background:var(--glass)}
 .lpSheet{position:relative;min-height:0;overflow:hidden}
 .lpSheet canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
@@ -646,3 +646,60 @@ tr.learner .rate .val{background:var(--violet)}
   .lpLegend{display:none}
   .lpEnd,.lpHint{margin-left:0}
 }
+
+/* the Forecast card: the turns ahead, beside the rail (16 Sep) */
+.lpCast{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;padding:14px 16px 12px;border-radius:14px;border:1px solid var(--border);background:var(--glass);overflow:hidden}
+.lpCastHead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.lpCastHead h5{margin:0;font:700 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.lpFam button{height:24px;padding:0 8px;font-size:11.5px}
+.lpCastLv{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px}
+.lpLv{display:flex;flex-direction:column;gap:2px;padding:7px 9px;border-radius:9px;background:rgb(255 255 255 / 4%)}
+.lpLv span{font:700 9.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.lpLv b{font:650 15px/1.1 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.lpLv small{color:var(--muted);font:500 11px/1.3 var(--sans)}
+.lpLv.kz{background:rgb(245 181 68 / 9%)}.lpLv.kz b{color:var(--amber)}
+.lpCastBar{display:flex;align-items:center;gap:9px}
+.lpCastBar .seg button{height:22px;padding:0 8px;font-size:11px}
+.lpCastRec{margin-left:auto;color:var(--muted);font:500 11.5px/1 var(--mono)}
+.lpCastRec b{color:var(--ink)}
+.lpCastList{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;scrollbar-width:thin}
+.lpCastCap{padding:6px 0 3px;font:700 9.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid rgb(255 255 255 / 6%)}
+.lpCastRow{display:grid;grid-template-columns:52px 10px 44px minmax(0,1fr) 62px 58px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgb(255 255 255 / 5%);font-size:12px;cursor:default}
+.lpCastRow.past{opacity:.72}
+.lpCastRow small{display:block;color:var(--muted);font:500 10.5px/1.2 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lpCastT{font:650 13px/1 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.lpCastC{font:650 12.5px/1.1 var(--mono)}
+.lpCastK{font:600 12px/1.1 var(--sans);color:var(--ink-2);min-width:0}
+.lpCastK.peak{color:#eb9b7b}.lpCastK.trough{color:#6fcf97}
+.lpCastZ{color:var(--muted);font:500 11px/1.2 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lpCastG{text-align:right}
+.lpCastG b{display:block;font:650 13.5px/1.1 var(--mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.lpCastG b.up{color:#6fcf97}.lpCastG b.dn{color:#eb7b7b}
+.lpCastEmpty{padding:14px 4px;color:var(--muted);font:500 12px/1.5 var(--sans)}
+.lpCastFoot{display:flex;flex-direction:column;gap:3px;color:var(--faint);font:500 10.5px/1.4 var(--sans)}
+.lpTip .kz{color:var(--amber)}
+@media (max-width:1500px){.lpStage{grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:1fr auto;height:auto}.lpSheet{min-height:420px}.lpCast{grid-column:1 / -1;max-height:420px}}
+
+/* the turns card on the grade tab (16 Sep) */
+.tCard .gKey i.hard{background:rgb(245 181 68 / 35%)}
+.tVerdict{margin:0 0 12px;padding:12px 14px;border-radius:11px;background:rgb(255 255 255 / 4%)}
+.tVerdict.ok{background:rgb(47 191 133 / 8%)}
+.tVerdict p{margin:0;color:var(--ink-2);font:500 12.5px/1.55 var(--sans)}
+.tVerdict p+p{margin-top:3px}
+.tVerdict .win{color:var(--muted)}.tVerdict .win b{color:var(--ink)}
+.tGrid{display:grid;grid-template-columns:1fr;gap:16px}
+.tFam h4,.tNet h4{margin:0 0 8px;font:700 11px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+.tFam h4 span,.tNet h4 span{margin-left:8px;font:500 11px/1.3 var(--sans);letter-spacing:0;text-transform:none;color:var(--muted)}
+.tFam .table{max-height:none}
+.tFam .table td{padding:5px 8px;font-size:12px}
+.tFam .table th{padding:6px 8px}
+.tFam .table td.hard{background:rgb(245 181 68 / 10%)}
+.tFam .table tr.ok td:nth-child(3) b{color:var(--ok)}.tFam .table tr.bad td:nth-child(3) b{color:var(--err)}
+.tFam .table tr.sep td{padding:9px 8px 3px;border-bottom:0;font:700 9.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);white-space:normal}
+.tNet{margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
+.tNet p{margin:0;color:var(--ink-2);font:500 12.5px/1.5 var(--sans)}
+.tBins{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.tBins span{display:flex;flex-direction:column;gap:3px;min-width:120px;padding:8px 10px;border-radius:9px;background:rgb(255 255 255 / 4%)}
+.tBins span.muted{opacity:.45}
+.tBins small{color:var(--muted);font:500 10.5px/1.2 var(--sans)}
+.tBins b{font:650 16px/1.1 var(--mono);color:var(--ink)}

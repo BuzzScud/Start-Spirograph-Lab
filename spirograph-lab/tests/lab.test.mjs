@@ -65,6 +65,21 @@ test('series, sessions, a built day and a graded range', async t => {
   assert.equal(fc.run.pen.length, 181);
   assert.ok(fc.closes.length > 200);
   assert.equal(lab.get('grades', q({ series: U })).body.grades.length, 1);
+  // the turns result beside the grade, and one session's calls for the Forecast card
+  const turns = lab.get('turns', q({ series: U, key: g.key })).body;
+  assert.ok(turns.report && turns.report.cells['f:daily'] && turns.report.cells['f:kalman'], 'both families graded');
+  assert.ok(turns.report.graded.daily > 30 && turns.report.graded.kalman > 30, JSON.stringify(turns.report.graded));
+  assert.ok(turns.report.verdict.lines.length >= 3);
+  assert.equal(turns.net.v, 1); assert.equal(turns.calls, undefined, 'the calls are not sent with the report');
+  assert.equal(turns.stale, false);
+  const dt = lab.get('dayturns', q({ series: U, open: nyEpoch(2026, 9, 2, 18) })).body;
+  assert.ok(dt.calls.length > 50 && dt.calls.every(c => c.at >= dt.open && c.at < dt.open + 86400e3), `${dt.calls.length} calls in the session`);
+  assert.ok(dt.calls.some(c => c.fam === 'kalman') && dt.calls.some(c => c.fam === 'daily'));
+  assert.ok(dt.level && dt.level.high > dt.level.low, 'the session\'s PDH and PDL');
+  assert.equal(dt.zones.length, 4);
+  assert.ok('earned' in dt.calls[0] && dt.record.daily && dt.record.kalman);
+  assert.equal(lab.get('dayturns', q({ series: U, open: nyEpoch(2026, 8, 25, 18) })).status, 404, 'a session no turns result covers');
+  assert.equal(lab.get('turns', q({ series: U, key: 'nope' })).status, 404);
   assert.equal(lab.post('grade', { series: U, from: 5, to: 4 }).status, 400);
   assert.equal(lab.get('nope', q({})).status, 404);
 });

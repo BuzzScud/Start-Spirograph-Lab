@@ -7,6 +7,9 @@
 //   GET  grades?series=                  the saved multi-day grades, newest first
 //   GET  grade?series=&key=              one grade: its scorecard, edge check, neural network rows and every forecast in brief
 //   GET  forecast?series=&key=&at=       one forecast of a grade, with the closes around it
+//   GET  turns?series=&key=              a grade's turns result: the turn rule's report for both circle families, the turn network
+//   GET  dayturns?series=&open=          one session's turn calls from the newest turns result covering it, with its levels, the kill
+//                                        zones and each call's earned confidence (the record before that session)
 //   POST day {series, open, rebuild}     build a day (a built one is answered at once unless rebuild)
 //   POST grade {series, from, to}        grade every 3-hour slot in [from, to)
 //
@@ -14,6 +17,9 @@
 import { Worker } from 'node:worker_threads';
 import { openLabStore } from './labStore.mjs';
 import { runLabJob, GRADE_VERSION } from './labJob.mjs';
+import { TURNS_VERSION, earnedRate, FAMILIES } from '../lab/labTurns.js';
+import { KILL_ZONES } from '../lab/labLevels.js';
+import { openBefore } from '../engine/dayClock.js';
 import { DAY_MIN, DAY_VERSION, MIN_DAY_BARS, sessionOpen } from '../lab/labDay.js';
 import { HORIZON_MIN } from '../engine/dailyTest.js';
 import { isFront, parseContract } from '../lab/labSeries.js';
@@ -124,6 +130,24 @@ export function createLab({ bankFile, labFile, log = () => {}, inline = false, n
         if (!it) return { status: 404, body: { error: 'no such forecast' } };
         const { bars } = lab.bars(series, at - 60 * M, it.run.end + 30 * M);
         return { status: 200, body: { run: it.run, grade: it.grade, closes: bars.map(x => [x.t + M, x.c]) } };
+      }
+      case 'turns': {
+        const r = series && lab.result('turns', series, q.get('key') || '');
+        if (!r) return { status: 404, body: { error: 'no turns for that grade: grade the range again' } };
+        const { calls, levels, ...rest } = r.data;
+        return { status: 200, body: { made: r.made, ...rest, stale: (rest.v || 0) < TURNS_VERSION } };
+      }
+      case 'dayturns': {
+        const open = Number(q.get('open'));
+        if (!series || !Number.isFinite(open)) return { status: 400, body: { error: 'series and open required' } };
+        const end = open + DAY_MIN * M;
+        const head = lab.results('turns', series).find(x => x.head && x.head.v === TURNS_VERSION && x.head.from <= open && x.head.to >= end);
+        if (!head) return { status: 404, body: { error: 'no turns result covers this session: grade a range that holds it (Multi-day grade)' } };
+        const r = lab.result('turns', series, head.key), all = r.data.calls, day = openBefore(open).day;
+        const calls = all.filter(c => c.at >= open && c.at < end).map(c => ({ ...c, earned: earnedRate(all, c, open) }));
+        const lv = (r.data.levels.find(([d]) => d === day) || [])[1] || null;
+        const record = Object.fromEntries(FAMILIES.map(f => { const g = all.filter(c => c.fam === f.id && c.at < open && (c.state === 'hit' || c.state === 'miss')); return [f.id, { n: g.length, hits: g.filter(c => c.state === 'hit').length }]; }));
+        return { status: 200, body: { key: head.key, from: head.head.from, to: head.head.to, made: r.made, open, level: lv, zones: KILL_ZONES, calls, record, verdict: r.data.report.verdict } };
       }
       default: return { status: 404, body: { error: 'not found' } };
     }

@@ -60,6 +60,15 @@ const STEPS = [
     <div class="hpTry"><b>Mind the sample</b> One day is one day. To see if the pen beats flat regularly, use the <b>Multi-day grade</b> tab.</div>
     <div class="hpHow"><b>How it is made</b> ${code('holdScore()')} in ${f('lab/labDay.js')}.</div>` },
 
+  { t: 'The Forecast card', short: 'Forecast', k: 'The turns ahead', show: 'cast', body: `
+    <p>The third card beside the circles lists the <b>turns the circles call</b> from the playhead on, and grades each one the moment its window closes as the day plays.</p>
+    <ul class="ghList hpList"><li><b>PDH / PDL</b>: the previous day's high and low (midnight to 3 pm New York, the Trading Platform's rule), with the distance from the market now. <b>Kill zone</b>: the ICT window you are in, or the next one.</li>
+      <li><b>Each row</b>: the time, the circle, ▼ peak or ▲ trough with the level it points at (a peak at PDH, a trough at PDL), the kill zone, and a <b>confidence</b>. That confidence is <b>earned</b>: the hit rate of that circle in that zone on the graded record before this day. No record, no number.</li>
+      <li><b>Both / Daily / Kalman</b> picks the circle family; <b>Circles</b> hides the fastest ones, which call a turn every few minutes.</li>
+      <li>On the close-up, PDH and PDL are dotted amber lines, the kill zones an amber wash with a named strip, and each call a small triangle: filled when it hit, crossed when it missed, faint while still ahead.</li></ul>
+    <p>The calls come from the newest <b>Multi-day grade</b> whose range holds this day. A day with no grade over it shows an empty card: grade a range that includes it.</p>
+    <div class="hpHow"><b>How it is made</b> The server answers ${code('dayturns')} from the grade's turns result (${f('lab/labTurns.js')}, ${f('lab/labKalman.js')}, ${f('lab/labLevels.js')}); ${code('drawCast()')} in ${f('lab/labPlayer.js')} paints it.</div>` },
+
   { t: 'How the tab is built', short: 'Code map', k: 'The code map', show: null, body: `
     <table class="ghTable hpTable"><tr><th>File</th><th>Job</th></tr>
       <tr><td>${f('index.html')}</td><td>the Day toolbar and the empty ${code('#player')}</td></tr>

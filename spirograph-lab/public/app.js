@@ -72,14 +72,14 @@ $('helpBtn').addEventListener('click', () => ({ day: dayHelp, grade: gradeHelp, 
 function showOnDay(where) {
   setTab('day');
   const p = $('player'), q = s => p.querySelector(s);
-  const el = { toolbar: $('daySel').closest('.toolbar'), sheet: q('.lpSheet'), rail: q('.lpRail'), hold: q('.lpHold'), deck: q('.lpBar'), chart: q('.lpChart') }[where];
+  const el = { toolbar: $('daySel').closest('.toolbar'), sheet: q('.lpSheet'), rail: q('.lpRail'), cast: q('.lpCast'), hold: q('.lpHold'), deck: q('.lpBar'), chart: q('.lpChart') }[where];
   const target = el && !el.closest('[hidden]') ? el : $('daySel').closest('.toolbar');
   target.scrollIntoView({ block: 'center', behavior: 'smooth' });
   target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
 }
 function showOnGrade(where) {
   setTab('grade');
-  const el = { toolbar: $('gTools'), verdict: $('gVerdict'), grid: $('gCal').closest('.gCard'), circles: $('gCircles').closest('.gCard'), list: $('gRuns').closest('.gCard') }[where];
+  const el = { toolbar: $('gTools'), verdict: $('gVerdict'), grid: $('gCal').closest('.gCard'), circles: $('gCircles').closest('.gCard'), turns: $('gTurns'), list: $('gRuns').closest('.gCard') }[where];
   const target = el && !el.closest('[hidden]') ? el : $('gTools');
   target.scrollIntoView({ block: 'center', behavior: 'smooth' });
   target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
@@ -151,7 +151,15 @@ async function openDay(open) {
     st.day = r.day; $('dayMsg').textContent = ''; $('player').hidden = false;
     player.set(r.day);
     if (st.tab === 'day') player.show();
+    loadDayTurns(open);
   } catch (e) { $('dayMsg').textContent = e.message; }
+}
+/** The Forecast card's calls: from the newest turns result covering the session. */
+async function loadDayTurns(open) {
+  try {
+    const r = await api(`dayturns?series=${encodeURIComponent(st.series)}&open=${open}`);
+    if (st.dayOpen === open) player.setForecast(r);
+  } catch (e) { if (st.dayOpen === open) player.setForecast(null, e.message); }
 }
 $('dayBuild').addEventListener('click', async () => {
   const open = st.dayOpen; if (open == null) return;
@@ -211,8 +219,43 @@ async function openGrade(key) {
     if (st.gradeKey !== key) return;
     st.grade = g; $('gMsg').textContent = ''; $('gBody').hidden = false;
     paintGrade(); paintEdge();
+    st.turns = null; paintTurns('reading the turns…');
+    try { const t = await api(`turns?series=${encodeURIComponent(st.series)}&key=${encodeURIComponent(key)}`); if (st.gradeKey === key) { st.turns = t; paintTurns(); } }
+    catch (e) { if (st.gradeKey === key) paintTurns(e.message); }
   } catch (e) { $('gMsg').textContent = e.message; }
 }
+
+// ---------------------------------------------------------------- the turns: both circle families against the measured nulls
+const FAM = { daily: 'Daily set', kalman: 'Kalman rungs' }, NULLW = { random: 'random minutes', clock: 'same clock, other day', shift: 'turns shifted' };
+const ZONEW = { asia: 'Asia', london: 'London', nyam: 'New York AM', nypm: 'New York PM', none: 'outside the zones' };
+function paintTurns(msg) {
+  const box = $('gTurns'), t = st.turns;
+  if (!t) { box.innerHTML = `<div class="gCardHead"><h3>Turns at the levels <span>both circle families · the turn rule · three nulls</span></h3></div><div class="msg">${esc(msg || 'no turns result')}${msg && /grade the range again/.test(msg) ? ' <button type="button" class="btn sm" id="gTurnsRegrade">Grade this range again</button>' : ''}</div>`;
+    $('gTurnsRegrade')?.addEventListener('click', () => startGrade(st.grade.from, st.grade.to)); return; }
+  const rep = t.report, cells = rep.cells, v = rep.verdict;
+  const cell = key => cells[key] || null;
+  const tone = c => (!c || !c.judged ? '' : c.clears ? 'ok' : c.worse ? 'bad' : '');
+  const pillOf = c => (!c ? '—' : !c.judged ? `<span class="pill">${c.n} turns · too few</span>` : c.clears ? '<span class="pill ok">✓ Clears its null</span>' : c.worse ? '<span class="pill bad">✕ Worse than chance</span>' : '<span class="pill">No skill shown</span>');
+  const num = (x, d = 0) => (Number.isFinite(x) ? pct(x) : '—');
+  const rowOf = (label, key, extra = '') => { const c = cell(key); if (!c) return ''; return `<tr class="${tone(c)}"><td>${label}</td><td>${int(c.n)}</td><td><b>${num(c.rate)}</b> <i>${c.judged ? `${num(c.lo)}–${num(c.hi)}` : ''}</i></td>`
+    + rep.nulls.map(nm => `<td class="${c.hardestName === nm ? 'hard' : ''}">${num(c.null[nm]?.mean)}</td>`).join('') + `<td>${c.judged ? sgnPct(c.skill) : '—'}</td><td>${pillOf(c)}</td>${extra}</tr>`; };
+  const sgnPct = x => (Number.isFinite(x) ? `${x >= 0 ? '+' : '−'}${Math.abs(Math.round(100 * x))} pts` : '—');
+  const head = `<thead><tr><th></th><th>Turns</th><th>Hit a real turn <i>95% by session</i></th>${rep.nulls.map(nm => `<th>${NULLW[nm]}</th>`).join('')}<th>Skill <i>vs hardest</i></th><th></th></tr></thead>`;
+  const byCircle = fam => WORD.map((w, n) => rowOf(`<i class="sw" style="--c:${COLORS[n]}"></i>${w}`, `c:${fam}|${n}`)).join('');
+  const byZone = fam => Object.keys(ZONEW).map(z => rowOf(ZONEW[z], `z:${fam}|${z}`)).join('');
+  const byTag = fam => rep.tags.map(k => rowOf(k, `l:${fam}|${k}`)).join('');
+  const fams = ['daily', 'kalman'];
+  const net = t.net;
+  box.innerHTML = `<div class="gCardHead"><h3>Turns at the levels <span>both circle families · a hit is a real swing of the same kind within ⅛ lap (at least a minute) · graded ${int(rep.graded.daily)} Daily, ${int(rep.graded.kalman)} Kalman</span></h3>
+      <span class="gKey"><span><i class="hard"></i>hardest null</span><span>${rep.reps} draws behind the random and shift nulls</span></span></div>
+    <div class="tVerdict ${v.any && !v.lucky ? 'ok' : ''}">${v.lines.map(l => `<p>${esc(l)}</p>`).join('')}${v.winners.length ? `<p class="win">Cells that clear: ${v.winners.map(w => `<b>${esc(cellName(w.key))}</b> ${pct(w.rate)} vs ${pct(w.hardest)} on ${int(w.n)}`).join(' · ')}${v.lucky ? ' — no more than luck predicts across this many cells.' : ''}</p>` : ''}</div>
+    <div class="tGrid">${fams.map(fam => `<div class="tFam"><h4>${FAM[fam]} <span>${fam === 'daily' ? 'phases locked to 6 pm, called at each 3-hour slot' : 'phases free, called a quarter lap ahead of every closed minute'}</span></h4>
+      <div class="table"><table>${head}<tbody>${rowOf('<b>All circles</b>', `f:${fam}`)}${byCircle(fam)}<tr class="sep"><td colspan="8">by kill zone</td></tr>${byZone(fam)}<tr class="sep"><td colspan="8">by where the market stood against PDH and PDL when the turn was due</td></tr>${byTag(fam)}</tbody></table></div></div>`).join('')}</div>
+    <div class="tNet"><h4>The turn network <span>${(net.inputs || []).join(' · ')}</span></h4><p>${esc(net.verdict)}${net.ready ? ` · ${net.tested} calls scored, ${net.said} said over 50%${Number.isFinite(net.missLap) ? ` · on hits its timing guess was off by ${(100 * net.missLap).toFixed(0)}% of a lap` : ''}` : ''}</p>
+      ${net.ready ? `<div class="tBins">${net.bins.map(b => `<span class="${b.n ? '' : 'muted'}"><small>said ${pct(b.lo)}–${pct(b.hi)}</small><b>${b.n ? pct(b.rate) : '—'}</b><small>${int(b.n)} calls</small></span>`).join('')}</div>` : ''}</div>
+    ${t.stale ? '<p class="note">Built by an older turn rule: grade the range again.</p>' : ''}`;
+}
+const cellName = key => { const [k, rest] = key.split(':'), [fam, n, x] = rest.split('|'); const w = WORD[+n]; return k === 'c' ? `${FAM[fam]} ${w}` : k === 'zc' ? `${FAM[fam]} ${w} in ${ZONEW[x] || x}` : `${FAM[fam]} ${w} ${x}`; };
 const SLOTS = [18, 21, 0, 3, 6, 9, 12, 15];   // a session's 3-hour slots in New York, 6 pm open first
 const hourWord = x => (x === 0 ? '12 am' : x < 12 ? `${x} am` : x === 12 ? '12 pm' : `${x - 12} pm`);
 const nyHour = ms => Number(hm(ms).slice(0, 2));
