@@ -14,14 +14,20 @@
 //   5. Every call is tagged with its kill zone and where the market stood against PDH and PDL when the turn was due,
 //      so the record can say where the circles work, if anywhere. The nulls are tagged the same way.
 //
+// EDITABLE (16 Sep, "can we make the rule editable?"): every number above comes from a turn rule (lab/turnRule.js); the
+// default rule is the one described here, and every function takes a rule as its last argument. Each result keeps a
+// HELD-BACK part: the last two weeks of a range scored on their own, so a rule tuned on the rest can be tried on
+// weeks it was never looked at.
+//
 // Pure: no DOM, no database. The server grades with it; the page reads the report and the day's calls.
 import { globexOpen } from '../engine/session.js';
 import { openBefore } from '../engine/dayClock.js';
 import { wilson, clusterCI } from '../engine/stats.js';
 import { zoneAt, levelsAt, levelTag, tagWord, ZONE_IDS, TAG_KEYS } from './labLevels.js';
+import { DEFAULT_RULE, swingOf, tolOf, zonesOf, HOLDOUT_DAYS } from './turnRule.js';
 
 const M = 60000;
-export const TURNS_VERSION = 1;
+export const TURNS_VERSION = 2;   // 2: kept per rule, with a held-back part
 export const FAMILIES = [{ id: 'daily', name: 'Daily set', note: 'phases locked to 6 pm' }, { id: 'kalman', name: 'Kalman rungs', note: 'phases free, read every closed minute' }];
 export const MIN_GRADED = 30;      // calls a cell needs before it is judged
 export const NULL_REPS = 60;       // random draws behind the random and shift nulls
@@ -29,9 +35,12 @@ export const TOL_SHARE = 1 / 8;    // a hit is within this share of a lap of the
 export const TOL_MIN = 1;          // minutes: the floor of that tolerance, one-minute closes cannot place a turn finer
 export const FLAT = 0.5;           // points: a circle smaller than this calls no turns (filterRecord.js FLAT)
 /** The swing's reach in minutes for a circle of P minutes: the closes either side a real turn must beat. */
-export const swingMin = P => Math.max(2, Math.round(P * TOL_SHARE));
+export const swingMin = (P, rule = DEFAULT_RULE) => swingOf(rule, P);
 /** The tolerance in minutes for a circle of P minutes. */
-export const tolMin = P => Math.max(TOL_MIN, P * TOL_SHARE);
+export const tolMin = (P, rule = DEFAULT_RULE) => tolOf(rule, P);
+const zoneCache = new WeakMap();
+/** The rule's zones in force (kept, so a hot loop does not rebuild them). */
+function zonesFor(rule) { let z = zoneCache.get(rule); if (!z) { z = zonesOf(rule); zoneCache.set(rule, z); } return z; }
 
 function mulberry32(a) {
   return () => { let t = (a += 0x6D2B79F5); t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -43,8 +52,8 @@ function lowerBound(arr, n, x) { let lo = 0, hi = n; while (lo < hi) { const mid
  * a close that no other close within P/8 minutes (at least 2) on either side beats (a tie is allowed), alternating peak
  * and trough, the more extreme kept when two of a kind meet with no shut market between them. { t: Float64Array, k: Uint8Array (1 peak), p: Float64Array, n }.
  */
-export function realTurns(closes, P) {
-  const s = swingMin(P), n = closes.n, t = closes.t, p = closes.p, piv = [];
+export function realTurns(closes, P, rule = DEFAULT_RULE) {
+  const s = swingMin(P, rule), n = closes.n, t = closes.t, p = closes.p, piv = [];
   for (let i = s; i < n - s; i++) {
     if (t[i + s] - t[i - s] > (2 * s + 5) * M) continue;   // the window spans a shut market (more than five minutes missing): not a swing this data can show
     let isH = true, isL = true;
@@ -62,7 +71,7 @@ export function realTurns(closes, P) {
   return { t: Float64Array.from(alt, q => q.t), k: Uint8Array.from(alt, q => q.k), p: Float64Array.from(alt, q => q.p), n: alt.length };
 }
 /** realTurns for every period in `periods`: a Map P → turns. */
-export function realTurnsByPeriod(closes, periods) { return new Map([...new Set(periods)].map(P => [P, realTurns(closes, P)])); }
+export function realTurnsByPeriod(closes, periods, rule = DEFAULT_RULE) { return new Map([...new Set(periods)].map(P => [P, realTurns(closes, P, rule)])); }
 
 /** The nearest real turn of `kind` (1 peak) to epoch ms `at` within `tolMs`, or null: { i, off (minutes, + late), price }. */
 export function nearestTurn(real, at, kind, tolMs) {
@@ -85,12 +94,12 @@ export function closeAt(closes, at) { const i = lowerBound(closes.t, closes.n, a
  * A call is LATE, and not graded, when it was made after the real turn's own window had opened (the model had read
  * closes the swing is judged on): the call must come at least swingMin(P) minutes before the turn.
  */
-export function gradeCall(call, real, closes, levels, nowMs) {
-  const tolMs = tolMin(call.P) * M, zone = zoneAt(call.at) || 'none';
+export function gradeCall(call, real, closes, levels, nowMs, rule = DEFAULT_RULE) {
+  const tolMs = tolMin(call.P, rule) * M, sw = swingMin(call.P, rule) * M, zone = zoneAt(call.at, zonesFor(rule)) || 'none';
   if (!globexOpen(call.at)) return { ...call, state: 'shut', zone };
-  if (call.calledAt > call.at - swingMin(call.P) * M) return { ...call, state: 'late', zone };
-  if (call.at + Math.max(tolMs, swingMin(call.P) * M) > nowMs) return { ...call, state: 'ahead', zone };
-  const px = closeAt(closes, call.at), lv = levelsAt(levels, call.at), lt = levelTag(px, lv);
+  if (call.calledAt > call.at - sw) return { ...call, state: 'late', zone };
+  if (call.at + Math.max(tolMs, sw) > nowMs) return { ...call, state: 'ahead', zone };
+  const px = closeAt(closes, call.at), lv = levelsAt(levels, call.at), lt = levelTag(px, lv, rule);
   const near = nearestTurn(real, call.at, call.kind === 'peak' ? 1 : 0, tolMs);
   return { ...call, state: near ? 'hit' : 'miss', off: near ? near.off : null, turnPx: near ? near.price : null, zone, tag: tagWord(lt), px, level: lv ? { high: lv.high, low: lv.low } : null };
 }
@@ -121,18 +130,18 @@ const pooled = m => { let k = 0, n = 0; for (const c of m.values()) { k += c.k; 
  * realTurnsByPeriod's map, `closes` and `levels` the ones they were graded with. Returns the report: every cell
  * (family, circle, zone, level tag) with its rate, its interval, each null's rate and the verdict.
  */
-export function turnReport(calls, realByP, closes, levels, { reps = NULL_REPS, seed = 7 } = {}) {
+export function turnReport(calls, realByP, closes, levels, { reps = NULL_REPS, seed = 7, rule = DEFAULT_RULE } = {}) {
   const graded = calls.filter(c => c.state === 'hit' || c.state === 'miss'), sessions = sessionsOf(closes), rnd = mulberry32(seed);
   const real = new Map(), nulls = { random: new Map(), clock: new Map(), shift: new Map() };
-  const sessionOf = at => openBefore(at).day;
+  const sessionOf = at => openBefore(at).day, zones = zonesFor(rule);
   // the real outcome
   for (const c of graded) tally(real, cellKeys(c.fam, c.n, c.zone, c.tag), sessionOf(c.at), c.state === 'hit');
   // a null draw: the same call at another time, tagged and graded the same way
   const score = (c, at) => {
     if (!globexOpen(at)) return null;
-    const px = closeAt(closes, at), tag = tagWord(levelTag(px, levelsAt(levels, at)));
-    const near = nearestTurn(realByP.get(c.P), at, c.kind === 'peak' ? 1 : 0, tolMin(c.P) * M);
-    return { keys: cellKeys(c.fam, c.n, zoneAt(at) || 'none', tag), hit: !!near };
+    const px = closeAt(closes, at), tag = tagWord(levelTag(px, levelsAt(levels, at), rule));
+    const near = nearestTurn(realByP.get(c.P), at, c.kind === 'peak' ? 1 : 0, tolMin(c.P, rule) * M);
+    return { keys: cellKeys(c.fam, c.n, zoneAt(at, zones) || 'none', tag), hit: !!near };
   };
   const draws = { random: [], shift: [] };   // per rep: cells
   for (let r = 0; r < reps; r++) {
@@ -182,6 +191,8 @@ export function turnReport(calls, realByP, closes, levels, { reps = NULL_REPS, s
     ahead: calls.filter(c => c.state === 'ahead').length, shut: calls.filter(c => c.state === 'shut').length, late: calls.filter(c => c.state === 'late').length,
     real: Object.fromEntries([...realByP].map(([P, r]) => [P, r.n])),
     cells,
+    // each headline cell's sessions, for an interval at another level later (the ranking's luck bar)
+    tallies: Object.fromEntries(['all', ...FAMILIES.map(f => `f:${f.id}`)].filter(k => real.has(k)).map(k => [k, [...real.get(k).values()]])),
   };
   out.verdict = verdictOf(out);
   return out;
@@ -214,9 +225,9 @@ export function verdictOf(rep) {
  * The Daily set's calls from graded forecasts [{ run }] (dailyTest.js): every turn a frozen pen put in its 3 hours,
  * called at the slot, with the circle's signed size as fitted there.
  */
-export function dailyCalls(items) {
+export function dailyCalls(items, rule = DEFAULT_RULE) {
   const out = [];
-  for (const { run } of items) for (const t of run.turns) if (Math.abs(run.amps[t.n]) >= FLAT) out.push({ fam: 'daily', n: t.n, P: t.P, at: t.at, kind: t.kind, calledAt: run.at, A: run.amps[t.n] });
+  for (const { run } of items) for (const t of run.turns) if (Math.abs(run.amps[t.n]) >= rule.flat) out.push({ fam: 'daily', n: t.n, P: t.P, at: t.at, kind: t.kind, calledAt: run.at, A: run.amps[t.n] });
   return out;
 }
 
@@ -234,4 +245,57 @@ export function earnedRate(graded, call, beforeMs, min = 20) {
     if (n >= min) return { rate: k / n, n, level: names[i] };
   }
   return null;
+}
+
+/** Where a range's held-back weeks start: the 6 pm open HOLDOUT_DAYS before its end (a third of a short range). */
+export function holdStart(from, to) {
+  const days = Math.min(HOLDOUT_DAYS, Math.floor((to - from) / 86400e3 / 3));
+  return openBefore(to - Math.max(1, days) * 86400e3).ms;
+}
+
+/**
+ * A headline cell's interval at a stricter level: with `tries` rules scored on the same weeks, each is held to
+ * 95% / tries (Bonferroni), so trying many rules does not make one of them clear by luck. { lo, hi, level }.
+ */
+export function strictCI(tallies, tries = 1) {
+  const t = Math.max(1, tries), a = 0.025 / t, ci = clusterCI(tallies || [], Math.min(40000, Math.max(4000, Math.ceil(40 / a))), a, 1 - a);
+  if (Number.isFinite(ci.lo)) return { lo: ci.lo, hi: ci.hi, level: 1 - 0.05 / t };
+  const { k, n } = (tallies || []).reduce((s, c) => ({ k: s.k + c.k, n: s.n + c.n }), { k: 0, n: 0 });
+  const w = wilson(k, n, zOf(a));
+  return { lo: w.lo, hi: w.hi, level: 1 - 0.05 / t };
+}
+/** The normal quantile for a one-sided tail `a` (Acklam's rational approximation, plenty for a luck bar). */
+function zOf(a) {
+  const q = Math.sqrt(-2 * Math.log(a));
+  return q - (2.515517 + 0.802853 * q + 0.010328 * q * q) / (1 + 1.432788 * q + 0.189269 * q * q + 0.001308 * q * q * q);
+}
+
+/** A headline cell in brief (a ranking row): rate, hardest null and its name, skill, turns, sessions. */
+export const cellBrief = c => (c ? { n: c.n, rate: c.rate, hardest: c.hardest, hardestName: c.hardestName, skill: c.skill, judged: c.judged, clears: c.clears, lo: c.lo, hi: c.hi } : null);
+
+// graded calls kept compactly: one array per field, the words as small codes
+const PACK = ['n', 'P', 'at', 'calledAt', 'A', 'sdMin', 'off', 'turnPx', 'px'];
+const STATES = ['hit', 'miss', 'ahead', 'shut', 'late'], KINDS = ['peak', 'trough'], FAMS = FAMILIES.map(f => f.id), TAGS = [...TAG_KEYS, 'no levels'];
+const r2 = v => (v == null || !Number.isFinite(v) ? null : Math.round(v * 100) / 100);
+/** Graded calls as columns (about a third of the size of the objects). */
+export function packCalls(calls) {
+  const out = { v: 1, fam: [], kind: [], state: [], zone: [], tag: [] };
+  for (const k of PACK) out[k] = [];
+  for (const c of calls) {
+    out.fam.push(FAMS.indexOf(c.fam)); out.kind.push(KINDS.indexOf(c.kind)); out.state.push(STATES.indexOf(c.state));
+    out.zone.push(ZONE_IDS.indexOf(c.zone)); out.tag.push(c.tag ? TAGS.indexOf(c.tag) : -1);
+    for (const k of PACK) out[k].push(k === 'at' || k === 'calledAt' || k === 'n' || k === 'P' ? c[k] : r2(c[k]));
+  }
+  return out;
+}
+/** packCalls, undone: the calls in `[i0, i1)` (all by default) as objects. */
+export function unpackCalls(p, keep = null) {
+  const out = [];
+  for (let i = 0; i < p.at.length; i++) {
+    if (keep && !keep(p.at[i])) continue;
+    const c = { fam: FAMS[p.fam[i]], kind: KINDS[p.kind[i]], state: STATES[p.state[i]], zone: ZONE_IDS[p.zone[i]] ?? 'none', tag: p.tag[i] >= 0 ? TAGS[p.tag[i]] : null };
+    for (const k of PACK) c[k] = p[k][i];
+    out.push(c);
+  }
+  return out;
 }

@@ -30,10 +30,10 @@ export const KILL_ZONES = [
   { id: 'nypm', name: 'New York PM', a: 1170, b: 1320, hours: '1:30 – 4 pm' },
 ];
 export const ZONE_IDS = [...KILL_ZONES.map(z => z.id), 'none'];
-/** The kill zone minute `m` of the day clock falls in, or null. */
-export const zoneOfMin = m => { for (const z of KILL_ZONES) if (m >= z.a && m < z.b) return z.id; return null; };
+/** The kill zone minute `m` of the day clock falls in, or null. `zones`: the ones in force (turnRule.js zonesOf). */
+export const zoneOfMin = (m, zones = KILL_ZONES) => { for (const z of zones) if (m >= z.a && m < z.b) return z.id; return null; };
 /** The kill zone epoch ms `ms` falls in, or null. */
-export const zoneAt = ms => zoneOfMin(sinceOpenMin(ms));
+export const zoneAt = (ms, zones = KILL_ZONES) => zoneOfMin(sinceOpenMin(ms), zones);
 export const zoneName = id => (KILL_ZONES.find(z => z.id === id) || { name: 'outside the zones' }).name;
 
 function lowerBound(bars, t) { let lo = 0, hi = bars.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (bars[mid].t < t) lo = mid + 1; else hi = mid; } return lo; }
@@ -70,10 +70,14 @@ export function sessionLevels(bars, fromMs, toMs) {
 }
 export const levelsAt = (map, ms) => map.get(openBefore(ms).day) || null;
 
-/** Where `price` stands against the levels: { tag: 'PDH' | 'PDL' | null (at the level), side: 'above' | 'inside' | 'below' }. */
-export function levelTag(price, lv) {
+/**
+ * Where `price` stands against the levels: { tag: 'PDH' | 'PDL' | null (at the level), side: 'above' | 'inside' | 'below' }.
+ * `band`: "at the level" as { levelShare, levelFloor } (an editable turn rule's), the defaults otherwise.
+ */
+export function levelTag(price, lv, band = null) {
   if (!lv || !Number.isFinite(price)) return { tag: null, side: null };
-  const tol = Math.max(LEVEL_MIN_PTS, LEVEL_SHARE * lv.range);
+  const range = Number.isFinite(lv.range) ? lv.range : lv.high - lv.low;
+  const tol = band ? Math.max(band.levelFloor, band.levelShare * range) : Math.max(LEVEL_MIN_PTS, LEVEL_SHARE * range);
   const tag = Math.abs(price - lv.high) <= tol ? 'PDH' : Math.abs(price - lv.low) <= tol ? 'PDL' : null;
   return { tag, side: price > lv.high ? 'above' : price < lv.low ? 'below' : 'inside', tol };
 }

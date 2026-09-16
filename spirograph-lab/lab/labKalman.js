@@ -13,12 +13,16 @@
 //
 // Seeded from a batch fit (engine/fit.js, free phase, on the epoch clock) a day before the first call and run over
 // every close in between, as the Ladder seeds the filter the first time it opens an instrument. Pure: no DOM.
+//
+// The lead, the swing's reach and the smallest circle come from a turn rule (lab/turnRule.js); the default rule is the
+// quarter lap described above.
 import { fitCycles, evalCycles } from '../engine/fit.js';
 import { seedFilter, step, openMinutes, stiffnessOf, WARM_MIN, DEFAULT_STIFFNESS, D } from '../engine/ladderFilter.js';
 import { FIT_LAPS, TAU } from '../engine/constants.js';
 import { DAILY_PERIODS } from '../engine/dailySet.js';
 import { globexOpen } from '../engine/session.js';
-import { FLAT, swingMin } from './labTurns.js';
+import { FLAT } from './labTurns.js';
+import { DEFAULT_RULE, leadOf } from './turnRule.js';
 
 const M = 60000;
 export const KALMAN_STIFFNESS = DEFAULT_STIFFNESS;
@@ -61,9 +65,9 @@ export function seedKalman(bars, seedMs, periods = DAILY_PERIODS, cfg = stiffnes
 }
 
 /** Rung k's turns in epoch minutes (fromMin, toMin] for a state: [{ at, kind }]. A·sin(ωm + φ) peaks at ωm + φ = π/2 + 2πj. */
-export function rungTurnsIn(st, k, fromMin, toMin) {
+export function rungTurnsIn(st, k, fromMin, toMin, flat = FLAT) {
   const a = st.x[2 + 2 * k], b = st.x[3 + 2 * k], w = st.omega[k], out = [];
-  if (!(Math.hypot(a, b) >= FLAT) || !(toMin > fromMin)) return out;
+  if (!(Math.hypot(a, b) >= flat) || !(toMin > fromMin)) return out;
   const phi = Math.atan2(a, b), peak = Math.PI / 2;
   const ja = (w * fromMin + phi - peak) / Math.PI, jb = (w * toMin + phi - peak) / Math.PI;
   for (let j = Math.floor(Math.min(ja, jb)); j <= Math.ceil(Math.max(ja, jb)); j++) {
@@ -85,10 +89,10 @@ export function rungSdMin(st, k) {
  * [from, to). Seeded WARM_MIN before `from`. Yields nothing; returns { calls, seed, closes } or { calls: [], refused }.
  * `trace(ms)` is called after each close with the state (for a day's drawing); `progress(done, total)` as it goes.
  */
-export function kalmanCalls({ bars, from, to, periods = DAILY_PERIODS, stiffness = KALMAN_STIFFNESS, progress = () => {}, trace = null }) {
+export function kalmanCalls({ bars, from, to, periods = DAILY_PERIODS, stiffness = KALMAN_STIFFNESS, rule = DEFAULT_RULE, progress = () => {}, trace = null }) {
   const cfg = stiffnessOf(stiffness), seedMs = from - WARM_MIN * M, seed = seedKalman(bars, seedMs, periods, cfg);
   if (!seed) return { calls: [], refused: 'history' };
-  const { st } = seed, calls = [], last = periods.map(() => null);
+  const { st } = seed, calls = [], last = periods.map(() => null), leads = periods.map(P => leadOf(rule, P));
   const i0 = lowerBound(bars, seedMs), i1 = lowerBound(bars, to), total = i1 - i0;
   let read = 0;
   for (let i = i0; i < i1; i++) {
@@ -99,11 +103,11 @@ export function kalmanCalls({ bars, from, to, periods = DAILY_PERIODS, stiffness
     if (trace) trace(T, st);
     if (T >= from - M) {
       for (let k = 0; k < periods.length; k++) {
-        const P = periods[k], lead = Math.max(P / 4, swingMin(P) + 1), Tm = T / M;
-        for (const t of rungTurnsIn(st, k, Tm + lead - 1, Tm + lead)) {
+        const P = periods[k], lead = leads[k], Tm = T / M;
+        for (const t of rungTurnsIn(st, k, Tm + lead - 1, Tm + lead, rule.flat)) {
           if (t.at < from || t.at >= to || !globexOpen(t.at)) continue;
           const prev = last[k];
-          if (prev && prev.kind === t.kind && t.at - prev.at < P / 4 * M) continue;   // the same turn, called again with less lead
+          if (prev && prev.kind === t.kind && t.at - prev.at < P * rule.leadShare * M) continue;   // the same turn, called again with less lead
           const call = { fam: 'kalman', n: k, P, at: Math.round(t.at), kind: t.kind, calledAt: T, A: Math.hypot(st.x[2 + 2 * k], st.x[3 + 2 * k]), sdMin: rungSdMin(st, k) };
           calls.push(call); last[k] = call;
         }

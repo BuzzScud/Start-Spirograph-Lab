@@ -8,6 +8,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2306080d'/%3E%3Ccircle cx='13' cy='16' r='8' fill='none' stroke='%23a78bfa' stroke-width='2'/%3E%3Ccircle cx='19' cy='16' r='4' fill='none' stroke='%23a78bfa' stroke-width='2'/%3E%3Ccircle cx='23' cy='16' r='2' fill='%23a78bfa'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/style.css">
 <link rel="stylesheet" href="/edge.css">
+<link rel="stylesheet" href="/rules.css">
 </head>
 <body>
 <header class="bar">
@@ -19,6 +20,7 @@
     <button type="button" role="tab" data-tab="day" aria-controls="pane-day">Day player</button>
     <button type="button" role="tab" data-tab="grade" aria-controls="pane-grade">Multi-day grade</button>
     <button type="button" role="tab" data-tab="edge" aria-controls="pane-edge">Edge check</button>
+    <button type="button" role="tab" data-tab="rules" aria-controls="pane-rules">Turn rules</button>
   </nav>
   <label class="field">Instrument <select id="series" aria-label="Instrument"></select></label>
   <button type="button" class="btn helpBtn" id="helpBtn" aria-haspopup="dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.4-2.7 4"/><circle class="fill" cx="12" cy="17.4" r=".9"/></svg>Help me</button>
@@ -75,6 +77,11 @@
   <section class="pane" id="pane-edge" role="tabpanel" hidden>
     <div class="msg" id="eMsg"></div>
     <div id="eView" hidden></div>
+  </section>
+
+  <section class="pane" id="pane-rules" role="tabpanel" hidden>
+    <div class="msg" id="rMsg"></div>
+    <div class="pane" id="rView" hidden></div>
   </section>
 </main>
 <dialog class="edWire" id="eWire" aria-labelledby="eWireTitle">

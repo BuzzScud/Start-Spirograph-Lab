@@ -4,10 +4,15 @@
 // circle, its size, how far ahead it was called, the time of day, the kill zone, the market's place against PDH and
 // PDL, the kind of turn and the family. Scored as a probability forecast is: its Brier score against always saying
 // the base rate, paired call by call, and its calls at over 50% against the base rate. Pure: no DOM, no database.
-import { createNet, train, forward, netWalk, fingerprint, NET } from './labNet.js';
+//
+// MODULAR (16 Sep, "make the forecast modular, based on the neural network"): a turn rule (lab/turnRule.js) says which
+// groups of inputs the network may learn from; a group switched off reaches it as zeros. The weights after every fit
+// are kept, so any call can be given the odds the network had learned before that call's session (pHit), and the
+// score is split at the rule's held-back weeks.
+import { createNet, train, forward, netWalk, fingerprint, snapshot, pUp, NET } from './labNet.js';
 import { sinceOpenMin } from '../engine/dayClock.js';
 import { ZONE_IDS } from './labLevels.js';
-import { TOL_SHARE } from './labTurns.js';
+import { DEFAULT_RULE, netMask } from './turnRule.js';
 
 export const TURN_NET_VERSION = 1;
 export const MAX_ROWS = 3000;        // the walk retrains up to 60 times over every row before each call: capped for time
@@ -16,19 +21,21 @@ export const TURN_INPUTS = ['circle', 'size', 'lead', 'time sin', 'time cos', ..
 export const TURN_NET = { ...NET, hidden: 8 };
 const clip = (v, a, b) => Math.max(a, Math.min(b, v));
 
+/** One call's inputs (TURN_INPUTS): `c` needs n, A, at, calledAt, P, zone, kind, fam, and px + level { high, low } for the levels. */
+export function turnRow(c) {
+  const a = 2 * Math.PI * sinceOpenMin(c.at) / 1440, lv = c.level, rng = lv ? Math.max(1, lv.high - lv.low) : 0;
+  return [c.n, Math.log1p(Math.abs(c.A || 0)), clip((c.at - c.calledAt) / (c.P * 60000), 0, 2), Math.sin(a), Math.cos(a),
+    ...ZONE_IDS.slice(0, 4).map(z => (c.zone === z ? 1 : 0)),
+    lv && Number.isFinite(c.px) ? clip((c.px - lv.high) / rng, -2, 2) : 0, lv && Number.isFinite(c.px) ? clip((c.px - lv.low) / rng, -2, 2) : 0,
+    c.kind === 'peak' ? 1 : 0, c.fam === 'kalman' ? 1 : 0];
+}
+
 /** Rows from graded calls (labTurns.js gradeCall, hit or miss): { at, y (hit), move (timing miss in laps), x, fam, n }. */
-export function turnRows(calls) {
+export function turnRows(calls, rule = DEFAULT_RULE) {
   const rows = [];
   for (const c of calls) {
     if ((c.state !== 'hit' && c.state !== 'miss') || c.P < MIN_PERIOD) continue;
-    const a = 2 * Math.PI * sinceOpenMin(c.at) / 1440, lv = c.level, rng = lv ? Math.max(1, lv.high - lv.low) : 0;
-    rows.push({
-      at: c.at, fam: c.fam, n: c.n, y: c.state === 'hit' ? 1 : 0, move: c.state === 'hit' ? Math.abs(c.off) / c.P : 2 * TOL_SHARE,
-      x: [c.n, Math.log1p(Math.abs(c.A || 0)), clip((c.at - c.calledAt) / (c.P * 60000), 0, 2), Math.sin(a), Math.cos(a),
-        ...ZONE_IDS.slice(0, 4).map(z => (c.zone === z ? 1 : 0)),
-        lv && Number.isFinite(c.px) ? clip((c.px - lv.high) / rng, -2, 2) : 0, lv && Number.isFinite(c.px) ? clip((c.px - lv.low) / rng, -2, 2) : 0,
-        c.kind === 'peak' ? 1 : 0, c.fam === 'kalman' ? 1 : 0],
-    });
+    rows.push({ at: c.at, fam: c.fam, n: c.n, y: c.state === 'hit' ? 1 : 0, move: c.state === 'hit' ? Math.abs(c.off) / c.P : 2 * rule.tolShare, x: turnRow(c) });
   }
   rows.sort((a, b) => a.at - b.at);
   if (rows.length <= MAX_ROWS) return rows;
@@ -69,14 +76,41 @@ export function turnNetScore(rows, calls) {
   return out;
 }
 
-/** The whole walk at once (the server): rows, the score, the loss after each fit. */
-export function turnNetCheck(calls, cfg = TURN_NET) {
-  const rows = turnRows(calls), out = [], losses = [];
+const r6 = v => Math.round(v * 1e6) / 1e6;
+// the weights rounded to 1e-6; the scaling kept whole (a near-constant input's spread is tiny, and rounded to 0 it would divide by 0)
+const packSnap = sn => ({ d: sn.d, h: sn.h, msd: sn.msd, mu: Array.from(sn.mu), sd: Array.from(sn.sd), ...Object.fromEntries(['W1', 'b1', 'W2', 'b2', 'mask'].map(k => [k, Array.from(sn[k], r6)])) });
+/** A score in brief: what a ranking row and the rule page show. */
+export const netBrief = s => (s && s.ready ? { ready: true, tested: s.tested, base: s.base, brier: s.brier, brierBase: s.brierBase, gain: s.gain, gainBand: s.gainBand, edge: s.edge, said: s.said, saidRate: s.saidRate }
+  : { ready: false, tested: s ? s.tested : 0 });
+
+/**
+ * The whole walk at once (the server): rows, the score (all weeks, then the learning and held-back weeks apart), the
+ * loss after each fit, and the weights after each fit with the time of the last row it had learned (`snaps`), so pHit
+ * can give any later call the odds the network held then. `rule` picks the input groups; `holdFrom` splits the score.
+ */
+export function turnNetCheck(calls, { rule = DEFAULT_RULE, holdFrom = Infinity, keepSnaps = true } = {}) {
+  const rows = turnRows(calls, rule), mask = netMask(rule), cfg = { ...TURN_NET, mask }, out = [], losses = [], snaps = [];
   for (const s of netWalk(rows, cfg)) {
-    if (s.kind === 'fit') losses.push(s.losses[s.losses.length - 1]);
-    else out.push({ i: s.i, p: s.p, size: s.size });
+    if (s.kind === 'fit') {
+      losses.push(s.losses[s.losses.length - 1]);
+      if (keepSnaps) snaps.push({ upTo: s.upTo, lastAt: rows[s.upTo - 1].at, net: packSnap(snapshot(s.net)) });
+    } else out.push({ i: s.i, p: s.p, size: s.size });
   }
-  return { ...turnNetScore(rows, out), losses: losses.map(v => Math.round(v * 1e4) / 1e4), inputs: TURN_INPUTS };
+  const learn = turnNetScore(rows, out.filter(c => rows[c.i].at < holdFrom)), hold = turnNetScore(rows, out.filter(c => rows[c.i].at >= holdFrom));
+  return { ...turnNetScore(rows, out), learn: netBrief(learn), hold: netBrief(hold), holdFrom: Number.isFinite(holdFrom) ? holdFrom : null,
+    losses: losses.map(v => Math.round(v * 1e4) / 1e4), inputs: TURN_INPUTS, groups: { ...rule.net }, masked: mask ? mask.filter(m => !m).length : 0, snaps };
+}
+
+/**
+ * The network's odds that call `c` hits (turnRow's fields), as it stood after the last fit on rows before `beforeMs`
+ * (the call's session open): walk-forward, never a fit that saw the day. null for a circle it does not learn, or before
+ * its first fit.
+ */
+export function pHit(snaps, c, beforeMs) {
+  if (!snaps || !snaps.length || c.P < MIN_PERIOD) return null;
+  let s = null;
+  for (const q of snaps) if (q.lastAt < beforeMs) s = q; else break;
+  return s ? pUp(s.net, turnRow(c)) : null;
 }
 
 export { createNet, train, forward };

@@ -14,6 +14,10 @@
 // zone on the graded record before this session (labTurns.js earnedRate). As the day plays, each call is graded the
 // moment its window closes. The close-up draws PDH, PDL, the kill zones and the calls; the calls come from the newest
 // turns result covering the session (server: dayturns), so a day with no grade over it has an empty card.
+//
+// MODULAR (16 Sep): the card reads one TURN RULE (lab/turnRule.js), picked here or on the Turn rules tab: its calls, its
+// kill zones, its grading windows, and beside each call's earned confidence the turn network's odds, from the network
+// that rule trains, as it stood before the session.
 import { COLORS, TFS } from '../engine/constants.js';
 import { fmtPeriod, fmtTF } from '../engine/format.js';
 import { barsForPeriod } from '../engine/structure.js';
@@ -60,6 +64,7 @@ const MARKUP = `<div class="lpStage">
   </div></aside>
   <aside class="lpCast" data-r="cast" aria-label="Forecast: the turns ahead">
     <div class="lpCastHead"><h5>Forecast · turns ahead</h5><span class="seg lpFam" data-k="fam"><button type="button" data-v="both">Both</button><button type="button" data-v="daily" title="The Daily set: phases locked to 6 pm">Daily</button><button type="button" data-v="kalman" title="The Kalman rungs: phases free">Kalman</button></span></div>
+    <div class="lpCastRule" data-r="castRule"></div>
     <div class="lpCastLv" data-r="castLv"></div>
     <div class="lpCastBar"><span class="lpCap">Circles</span><span class="seg" data-k="minP">${MINPS.map(([v, w]) => `<button type="button" data-v="${v}">${w}</button>`).join('')}</span><span class="lpCastRec" data-r="castRec"></span></div>
     <div class="lpCastList" data-r="castList"></div>
@@ -91,7 +96,7 @@ const MARKUP = `<div class="lpStage">
   <div class="lpFoot"><div class="lpRead" data-r="read"></div><div class="lpHint" data-r="hint"></div></div>
 </div>`;
 
-export function createLabPlayer(el) {
+export function createLabPlayer(el, { onRule = () => {} } = {}) {
   el.innerHTML = MARKUP;
   const $ = k => el.querySelector(`[data-r="${k}"]`);
   const st = {
@@ -104,7 +109,7 @@ export function createLabPlayer(el) {
   if (!SPEED[st.speed]) st.speed = 'slow';
   if (!ZOOMS.includes(st.zoom)) st.zoom = 240;
   let D = null, N = 1440, L = 6, W = [], RAD = [], COL = [], TXT = [], LABELS = [], SCORE = null, scoreKey = '';
-  let F = null, FMSG = '', FCALLS = [], castKey = '';   // the forecast: the session's calls (server dayturns), filtered
+  let F = null, FMSG = '', FCALLS = [], castKey = '', ruleKey = '';   // the forecast: the session's calls (server dayturns), filtered
 
   const etTime = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
   const etDay = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/New_York', weekday: 'short', day: 'numeric', month: 'short' });
@@ -120,7 +125,7 @@ export function createLabPlayer(el) {
   const zoneOf = s => (F && F.zones || []).find(z => s >= z.a && s < z.b) || null;
   // a call's minute of the day, when its window closes (its grade can be shown), and whether the filters keep it
   const callMin = c => (c.at - D.open) / 60000;
-  const callDone = c => callMin(c) + Math.max(Math.max(1, c.P / 8), Math.max(2, Math.round(c.P / 8)));
+  const callDone = c => { const r = (F && F.rule) || { tolShare: 1 / 8, tolFloor: 1, swingShare: 1 / 8, swingFloor: 2 }; return callMin(c) + Math.max(Math.max(r.tolFloor, c.P * r.tolShare), Math.max(r.swingFloor, Math.round(c.P * r.swingShare))); };
   const keepCall = c => (st.fam === 'both' || c.fam === st.fam) && c.P >= st.minP && c.state !== 'shut' && c.state !== 'late';
   const filterCalls = () => { FCALLS = F ? F.calls.filter(keepCall) : []; };
   const presetName = h => (PRESETS.find(p => p[0] === h) || [])[1] || '';
@@ -357,7 +362,12 @@ export function createLabPlayer(el) {
   const zoneShort = m => { const z = (F && F.zones || []).find(q => m >= q.a && m < q.b); return z ? ZSHORT[z.id] || z.name : '—'; };
   function drawCast() {
     const s = st.s, m = mktAt(s), z = zoneOf(s), lv = F && F.level;
-    if (!F) { $('castLv').innerHTML = ''; $('castList').innerHTML = `<div class="lpCastEmpty">${esc(FMSG || 'no forecast for this day')}</div>`; $('castRec').textContent = ''; $('castFoot').textContent = ''; return; }
+    if (!F) { ruleKey = ''; $('castRule').innerHTML = ''; $('castLv').innerHTML = ''; $('castList').innerHTML = `<div class="lpCastEmpty">${esc(FMSG || 'no forecast for this day')}</div>`; $('castRec').textContent = ''; $('castFoot').textContent = ''; return; }
+    if (ruleKey !== `${F.key}|${(F.rules || []).length}`) {   // the rule picker: painted once per forecast, not every frame
+      ruleKey = `${F.key}|${(F.rules || []).length}`;
+      const rs = F.rules || [];
+      $('castRule').innerHTML = `<span class="lpCap">Rule</span>${rs.length > 1 ? `<select data-k="rule" aria-label="Turn rule">${rs.map(r => `<option value="${esc(r.id)}"${r.id === F.rule.id ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}</select>` : `<b>${esc(F.rule ? F.rule.name : 'Default')}</b>`}${F.held ? '<span class="lpHeld" title="This session is in the range\'s held-back weeks">held back</span>' : ''}`;
+    }
     const dist = v => (m == null || !Number.isFinite(v) ? '' : `<small>${sgn(v - m)} from here</small>`);
     const hunt = lv && m != null ? (m > lv.high ? 'above PDH' : m < lv.low ? 'below PDL' : `between · ${Math.round(100 * (m - lv.low) / (lv.high - lv.low))}% of the way up`) : '';
     $('castLv').innerHTML = `<div class="lpLv"><span>PDH</span><b>${lv ? fmtI(lv.high) : '—'}</b>${lv ? dist(lv.high) : ''}</div>`
@@ -371,8 +381,9 @@ export function createLabPlayer(el) {
     const row = (c, past) => {
       const target = c.kind === 'peak' ? 'PDH' : 'PDL', tv = lv ? (c.kind === 'peak' ? lv.high : lv.low) : NaN;
       const conf = c.earned ? `${Math.round(100 * c.earned.rate)}%` : '—', confT = c.earned ? `${c.earned.n} earlier ${famWord(c)} ${LABELS[c.n][0]} calls${c.earned.level === 'zone' ? ' in this zone' : c.earned.level === 'circle' ? ' (any zone)' : ' (any circle)'}: ${Math.round(100 * c.earned.rate)}% hit a real turn` : 'no earlier calls to earn a confidence from';
-      const grade = past ? (c.state === 'hit' ? `<b class="up">✓ hit</b><small>${c.off > 0 ? '+' : ''}${Math.round(c.off)} min</small>` : '<b class="dn">✗ miss</b>') : `<b>${conf}</b><small>${c.earned ? `${c.earned.n} calls` : 'no record'}</small>`;
-      return `<div class="lpCastRow${past ? ' past' : ''}" title="${esc(confT)}"><span class="lpCastT">${clock(callMin(c))}</span><i class="lpDot" style="background:${COL[c.n]}"></i><span class="lpCastC">${LABELS[c.n][0]}<small>${famWord(c)}</small></span>`
+      const net = Number.isFinite(c.net) ? `net ${Math.round(100 * c.net)}%` : c.P < 24 ? 'net —' : '', netT = Number.isFinite(c.net) ? ` · the turn network, trained on the calls before this day under this rule, gives it ${Math.round(100 * c.net)}%` : c.P < 24 ? ' · the network does not learn the 12m and 6m circles' : '';
+      const grade = past ? (c.state === 'hit' ? `<b class="up">✓ hit</b><small>${c.off > 0 ? '+' : ''}${Math.round(c.off)} min</small>` : '<b class="dn">✗ miss</b>') : `<b>${conf}</b><small>${c.earned ? `${c.earned.n} calls` : 'no record'}</small>${net ? `<small class="lpNet">${net}</small>` : ''}`;
+      return `<div class="lpCastRow${past ? ' past' : ''}" title="${esc(confT + netT)}"><span class="lpCastT">${clock(callMin(c))}</span><i class="lpDot" style="background:${COL[c.n]}"></i><span class="lpCastC">${LABELS[c.n][0]}<small>${famWord(c)}</small></span>`
         + `<span class="lpCastK ${c.kind}">${c.kind === 'peak' ? '▼ peak' : '▲ trough'}<small>${lv ? `${target} ${m != null && Number.isFinite(tv) ? sgn(tv - m) : ''}` : 'no levels'}</small></span>`
         + `<span class="lpCastZ" title="kill zone">${zoneShort(callMin(c))}</span><span class="lpCastG">${grade}</span></div>`;
     };
@@ -381,7 +392,7 @@ export function createLabPlayer(el) {
     const todayDone = FCALLS.filter(c => callDone(c) <= s && (c.state === 'hit' || c.state === 'miss')), todayHit = todayDone.filter(c => c.state === 'hit').length;
     $('castRec').innerHTML = todayDone.length ? `today <b>${todayHit}/${todayDone.length}</b>` : '';
     const rec = F.record, recWord = ['daily', 'kalman'].filter(k => rec[k] && rec[k].n).map(k => `${k === 'kalman' ? 'Kalman' : 'Daily'} ${Math.round(100 * rec[k].hits / rec[k].n)}% of ${rec[k].n}`).join(' · ');
-    $('castFoot').innerHTML = `<span>Confidence = that circle’s hit rate in that zone on the record before this day${recWord ? ` (${recWord})` : ''}.</span><span>${F.verdict && F.verdict.any ? 'A family clears its null on this range.' : 'No family beats its null on this range: read the odds as a record, not a promise.'}</span>`;
+    $('castFoot').innerHTML = `<span>Confidence = that circle’s hit rate in that zone on the record before this day${recWord ? ` (${recWord})` : ''}. Net = the turn network’s odds under this rule, as it stood before this day.</span><span>${F.verdict && F.verdict.any ? 'A family clears its null on this range.' : 'No family beats its null on this range: read the odds as a record, not a promise.'}</span>`;
   }
   function paintBar() {
     for (const g of el.querySelectorAll('.seg[data-k]')) for (const b of g.children) b.classList.toggle('on', String(st[g.dataset.k]) === b.dataset.v);
@@ -417,6 +428,7 @@ export function createLabPlayer(el) {
       case 'pick': setHold(+b.dataset.k); openMenu(false); menuBtn.focus(); break;
     }
   });
+  el.addEventListener('change', e => { if (e.target.matches('select[data-k="rule"]')) onRule(e.target.value); });
   $('timeIn').addEventListener('change', e => {
     const v = e.target.value; if (!v) return;
     const [hh, mm] = v.split(':').map(Number);
@@ -497,7 +509,7 @@ export function createLabPlayer(el) {
       setPlaying(false); seek(0); paintBar(); queueFit(); kick();
     },
     /** The session's turn calls (server dayturns) for the day shown, or null with a message. */
-    setForecast(data, msg = '') { F = data && D && data.open === D.open ? data : null; FMSG = F ? '' : msg; filterCalls(); castKey = ''; markDirty(); },
+    setForecast(data, msg = '') { F = data && D && data.open === D.open ? data : null; FMSG = F ? '' : msg; filterCalls(); castKey = ''; ruleKey = ''; markDirty(); },
     clear() { D = null; F = null; FCALLS = []; setPlaying(false); },
     show() { st.shown = true; markDirty(); queueFit(); },
     hide() { st.shown = false; setPlaying(false); },

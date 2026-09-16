@@ -3,12 +3,15 @@
 //   Multi-day grade  every 3-hour forecast in a range, scored against no-skill guesses (server/labJob.mjs)
 //   Edge check       whether a small learner finds anything in those forecasts (lab/labEdge.js), and a neural network
 //                    trained live on them (lab/labNet.js, public/net.js)
+//   Turn rules       the turn rule made editable, tried on a grade's range and ranked on its held-back weeks (public/rules.js)
 import { createLabPlayer } from '/lab/labPlayer.js';
 import { createNetPanel } from '/net.js';
 import { createEdgeView } from '/edge.js';
 import { createGradeHelp } from '/gradeHelp.js';
 import { createEdgeHelp } from '/edgeHelp.js';
 import { createDayHelp } from '/dayHelp.js';
+import { createRulesView } from '/rules.js';
+import { DEFAULT_ID } from '/lab/turnRule.js';
 import { esc, when, hm, tradeDay, isoDay, dayMonth, pct, sgn, int, arrow } from '/lab/util.js';
 import { COLORS } from '/engine/constants.js';
 import { nyEpoch } from '/engine/levels.js';
@@ -16,7 +19,7 @@ import { nyDateAdd } from '/engine/anchors.js';
 
 const $ = id => document.getElementById(id);
 const WORD = ['1D', '4H', '2H', '24m', '12m', '6m'];
-const TABS = ['day', 'grade', 'edge'];
+const TABS = ['day', 'grade', 'edge', 'rules'];
 const DAY = 86400e3, POLL_MS = 1500;
 const store = {
   get: (k, d) => { try { return localStorage.getItem('lab.' + k) ?? d; } catch { return d; } },
@@ -41,12 +44,21 @@ const st = {
   grades: [], gradeKey: null, grade: null, runSel: null, runFilter: 'all',
   jobs: [], watching: new Map(), pollTimer: 0,
 };
-const player = createLabPlayer($('player'));
+const player = createLabPlayer($('player'), { onRule: id => { useRule(id); } });
 const netPanel = createNetPanel($('eNet'));
 const edgeView = createEdgeView($('eView'), { netPanel, wire: $('eWire'), regrade: (from, to) => startGrade(from, to) });
 const gradeHelp = createGradeHelp($('gHelp'), { getGrade: () => st.grade, show: showOnGrade });
 const edgeHelp = createEdgeHelp($('eHelp'), { show: showOnEdge });
 const dayHelp = createDayHelp($('dHelp'), { show: showOnDay });
+const rulesView = createRulesView($('rView'), { api, toast, watch: (id, cb) => watch(id, cb), getSeries: () => st.series, useRule: id => useRule(id), getUsed: () => usedRule(), onSaved: () => { if (st.gradeKey) loadTurns(st.gradeKey); } });
+/** The rule the Forecast card and the grade's turns card read, per instrument. */
+const usedRule = () => store.get('rule.' + st.series, DEFAULT_ID);
+function useRule(id) {
+  store.set('rule.' + st.series, id || DEFAULT_ID);
+  if (st.dayOpen != null) loadDayTurns(st.dayOpen);
+  if (st.gradeKey) loadTurns(st.gradeKey);
+  rulesView.paint();
+}
 
 // ---------------------------------------------------------------- tabs
 function setTab(tab) {
@@ -68,7 +80,10 @@ window.addEventListener('hashchange', () => setTab(location.hash.slice(1)));
 
 // ---------------------------------------------------------------- help: the walkthrough's "show me"
 // the button opens the walkthrough of the tab you are on
-$('helpBtn').addEventListener('click', () => ({ day: dayHelp, grade: gradeHelp, edge: edgeHelp })[st.tab].open());
+$('helpBtn').addEventListener('click', () => {
+  if (st.tab === 'rules') { const d = document.querySelector('#rView [data-r="about"]'); if (d) { d.open = true; d.scrollIntoView({ block: 'center', behavior: 'smooth' }); } return; }
+  ({ day: dayHelp, grade: gradeHelp, edge: edgeHelp })[st.tab].open();
+});
 function showOnDay(where) {
   setTab('day');
   const p = $('player'), q = s => p.querySelector(s);
@@ -157,7 +172,7 @@ async function openDay(open) {
 /** The Forecast card's calls: from the newest turns result covering the session. */
 async function loadDayTurns(open) {
   try {
-    const r = await api(`dayturns?series=${encodeURIComponent(st.series)}&open=${open}`);
+    const r = await api(`dayturns?series=${encodeURIComponent(st.series)}&open=${open}&rule=${usedRule()}`);
     if (st.dayOpen === open) player.setForecast(r);
   } catch (e) { if (st.dayOpen === open) player.setForecast(null, e.message); }
 }
@@ -219,10 +234,18 @@ async function openGrade(key) {
     if (st.gradeKey !== key) return;
     st.grade = g; $('gMsg').textContent = ''; $('gBody').hidden = false;
     paintGrade(); paintEdge();
-    st.turns = null; paintTurns('reading the turns…');
-    try { const t = await api(`turns?series=${encodeURIComponent(st.series)}&key=${encodeURIComponent(key)}`); if (st.gradeKey === key) { st.turns = t; paintTurns(); } }
-    catch (e) { if (st.gradeKey === key) paintTurns(e.message); }
+    loadTurns(key);
   } catch (e) { $('gMsg').textContent = e.message; }
+}
+/** The grade's turns card under the rule in use (the default when that rule is not scored on this range). */
+async function loadTurns(key) {
+  st.turns = null; paintTurns('reading the turns…');
+  const q = rule => `turns?series=${encodeURIComponent(st.series)}&key=${encodeURIComponent(key)}&rule=${rule}`;
+  try {
+    const [rank, t] = await Promise.all([api(`rules?series=${encodeURIComponent(st.series)}&key=${encodeURIComponent(key)}`).catch(() => null),
+      api(q(usedRule())).catch(e => (usedRule() !== DEFAULT_ID ? api(q(DEFAULT_ID)) : Promise.reject(e)))]);
+    if (st.gradeKey === key) { st.turns = t; st.turnRules = rank ? rank.rows : []; paintTurns(); }
+  } catch (e) { if (st.gradeKey === key) { st.turnRules = []; paintTurns(e.message); } }
 }
 
 // ---------------------------------------------------------------- the turns: both circle families against the measured nulls
@@ -230,8 +253,8 @@ const FAM = { daily: 'Daily set', kalman: 'Kalman rungs' }, NULLW = { random: 'r
 const ZONEW = { asia: 'Asia', london: 'London', nyam: 'New York AM', nypm: 'New York PM', none: 'outside the zones' };
 function paintTurns(msg) {
   const box = $('gTurns'), t = st.turns;
-  if (!t) { box.innerHTML = `<div class="gCardHead"><h3>Turns at the levels <span>both circle families · the turn rule · three nulls</span></h3></div><div class="msg">${esc(msg || 'no turns result')}${msg && /grade the range again/.test(msg) ? ' <button type="button" class="btn sm" id="gTurnsRegrade">Grade this range again</button>' : ''}</div>`;
-    $('gTurnsRegrade')?.addEventListener('click', () => startGrade(st.grade.from, st.grade.to)); return; }
+  if (!t) { box.innerHTML = `<div class="gCardHead"><h3>Turns at the levels <span>both circle families · the turn rule · three nulls</span></h3></div><div class="msg">${esc(msg || 'no turns result')}${msg && /score them/.test(msg) ? ' <button type="button" class="btn sm pri" id="gTurnsScore">Score the turns</button> <span class="hint">about 15 seconds, no new grade</span>' : ''}</div>`;
+    $('gTurnsScore')?.addEventListener('click', () => scoreDefaultTurns()); return; }
   const rep = t.report, cells = rep.cells, v = rep.verdict;
   const cell = key => cells[key] || null;
   const tone = c => (!c || !c.judged ? '' : c.clears ? 'ok' : c.worse ? 'bad' : '');
@@ -246,14 +269,27 @@ function paintTurns(msg) {
   const byTag = fam => rep.tags.map(k => rowOf(k, `l:${fam}|${k}`)).join('');
   const fams = ['daily', 'kalman'];
   const net = t.net;
-  box.innerHTML = `<div class="gCardHead"><h3>Turns at the levels <span>both circle families · a hit is a real swing of the same kind within ⅛ lap (at least a minute) · graded ${int(rep.graded.daily)} Daily, ${int(rep.graded.kalman)} Kalman</span></h3>
-      <span class="gKey"><span><i class="hard"></i>hardest null</span><span>${rep.reps} draws behind the random and shift nulls</span></span></div>
+  const R = t.rule || {}, lap = x => `${+(100 * x).toFixed(1)}%`;
+  const hitWord = R.tolShare ? `within ${R.tolShare === 0.125 ? '⅛' : lap(R.tolShare)} of a lap (at least ${R.tolFloor} min)` : 'within ⅛ lap (at least a minute)';
+  const picks = st.turnRules || [], pick = picks.length > 1 ? `<label class="rPick">Rule <select id="gTurnsRule">${picks.map(x => `<option value="${esc(x.id)}"${x.id === t.ruleId ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>` : '';
+  box.innerHTML = `<div class="gCardHead"><h3>Turns at the levels <span>${esc(R.name || 'Default')} · both circle families · a hit is a real swing of the same kind ${hitWord} · graded ${int(rep.graded.daily)} Daily, ${int(rep.graded.kalman)} Kalman</span></h3>
+      <span class="gKey">${pick}<span><i class="hard"></i>hardest null</span><span>${rep.reps} draws behind the random and shift nulls</span><button type="button" class="btn sm" id="gTurnsEdit">Edit the rule</button></span></div>
     <div class="tVerdict ${v.any && !v.lucky ? 'ok' : ''}">${v.lines.map(l => `<p>${esc(l)}</p>`).join('')}${v.winners.length ? `<p class="win">Cells that clear: ${v.winners.map(w => `<b>${esc(cellName(w.key))}</b> ${pct(w.rate)} vs ${pct(w.hardest)} on ${int(w.n)}`).join(' · ')}${v.lucky ? ' — no more than luck predicts across this many cells.' : ''}</p>` : ''}</div>
     <div class="tGrid">${fams.map(fam => `<div class="tFam"><h4>${FAM[fam]} <span>${fam === 'daily' ? 'phases locked to 6 pm, called at each 3-hour slot' : 'phases free, called a quarter lap ahead of every closed minute'}</span></h4>
       <div class="table"><table>${head}<tbody>${rowOf('<b>All circles</b>', `f:${fam}`)}${byCircle(fam)}<tr class="sep"><td colspan="8">by kill zone</td></tr>${byZone(fam)}<tr class="sep"><td colspan="8">by where the market stood against PDH and PDL when the turn was due</td></tr>${byTag(fam)}</tbody></table></div></div>`).join('')}</div>
     <div class="tNet"><h4>The turn network <span>${(net.inputs || []).join(' · ')}</span></h4><p>${esc(net.verdict)}${net.ready ? ` · ${net.tested} calls scored, ${net.said} said over 50%${Number.isFinite(net.missLap) ? ` · on hits its timing guess was off by ${(100 * net.missLap).toFixed(0)}% of a lap` : ''}` : ''}</p>
       ${net.ready ? `<div class="tBins">${net.bins.map(b => `<span class="${b.n ? '' : 'muted'}"><small>said ${pct(b.lo)}–${pct(b.hi)}</small><b>${b.n ? pct(b.rate) : '—'}</b><small>${int(b.n)} calls</small></span>`).join('')}</div>` : ''}</div>
     ${t.stale ? '<p class="note">Built by an older turn rule: grade the range again.</p>' : ''}`;
+  $('gTurnsRule')?.addEventListener('change', e => useRule(e.target.value));
+  $('gTurnsEdit').addEventListener('click', () => setTab('rules'));
+}
+async function scoreDefaultTurns() {
+  try {
+    const key = st.gradeKey, r = await api('turns', { series: st.series, key, rule: {} });
+    if (r.cached) return loadTurns(key);
+    paintTurns('Scoring the turns under the default rule… about 15 seconds.');
+    watch(r.id, async job => { if (job.status !== 'done') return toast(`Turns: ${job.detail || job.status}`, true); toast(`Turns scored: ${job.detail}`); if (st.gradeKey === key) { loadTurns(key); rulesView.refresh(); } });
+  } catch (e) { toast(e.message, true); }
 }
 const cellName = key => { const [k, rest] = key.split(':'), [fam, n, x] = rest.split('|'); const w = WORD[+n]; return k === 'c' ? `${FAM[fam]} ${w}` : k === 'zc' ? `${FAM[fam]} ${w} in ${ZONEW[x] || x}` : `${FAM[fam]} ${w} ${x}`; };
 const SLOTS = [18, 21, 0, 3, 6, 9, 12, 15];   // a session's 3-hour slots in New York, 6 pm open first
@@ -422,6 +458,9 @@ function paintEdge() {
   $('eView').hidden = !g;
   netPanel.set(g);
   edgeView.set(g);
+  $('rMsg').textContent = g ? '' : 'No grade picked. Run one on Multi-day grade first: rules are tried on its range.';
+  $('rView').hidden = !g;
+  rulesView.set(g);
 }
 
 // ---------------------------------------------------------------- jobs
@@ -439,7 +478,7 @@ async function poll() {
     const chip = $('jobChip'); chip.hidden = !live.length;
     if (live.length) {
       const j = live[live.length - 1];
-      chip.innerHTML = `<span class="spin"></span>${j.kind === 'day' ? `Building ${tradeDay(Number(j.key))}` : 'Grading'} · ${Math.round(100 * j.done / Math.max(1, j.total))}%${live.length > 1 ? ` · ${live.length - 1} waiting` : ''}`;
+      chip.innerHTML = `<span class="spin"></span>${j.kind === 'day' ? `Building ${tradeDay(Number(j.key))}` : j.kind === 'turns' ? 'Scoring a rule' : j.kind === 'preview' ? 'Previewing a rule' : 'Grading'} · ${Math.round(100 * j.done / Math.max(1, j.total))}%${live.length > 1 ? ` · ${live.length - 1} waiting` : ''}`;
     }
     paintDayBar();
     if (live.length || st.watching.size) st.pollTimer = setTimeout(poll, POLL_MS);

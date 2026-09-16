@@ -42,6 +42,7 @@ export function openLabStore({ bankFile, labFile }) {
       ON CONFLICT (kind, series, key) DO UPDATE SET made = excluded.made, head = excluded.head, data = excluded.data`),
     get: db.prepare('SELECT made, head, data FROM lab_results WHERE kind = ? AND series = ? AND key = ?'),
     list: db.prepare('SELECT key, made, head FROM lab_results WHERE kind = ? AND series = ? ORDER BY made DESC'),
+    drop: db.prepare("DELETE FROM lab_results WHERE kind = ? AND series = ? AND substr(key, 1, length(?)) = ?"),
     hours: bank.prepare('SELECT t / 3600000 AS hr, COUNT(*) AS n, SUM(v) AS vol FROM bars WHERE contract = ? GROUP BY hr ORDER BY hr'),
     banked: bank.prepare('SELECT contract, COUNT(*) AS n, MIN(t) AS first, MAX(t) AS last FROM bars GROUP BY contract'),
   };
@@ -71,6 +72,8 @@ export function openLabStore({ bankFile, labFile }) {
     interrupt(now = Date.now()) { return Number(q.interrupt.run(now).changes); },
     putResult(kind, series, key, head, data, now = Date.now()) { q.put.run(kind, series, String(key), now, head ? JSON.stringify(head) : null, JSON.stringify(data)); },
     result(kind, series, key) { const r = q.get.get(kind, series, String(key)); return r ? { made: num(r.made), head: parse(r.head), data: parse(r.data) } : null; },
+    /** Delete the results of `kind` whose key starts with `prefix`. */
+    dropResults(kind, series, prefix) { return Number(q.drop.run(kind, series, prefix, prefix).changes); },
     results(kind, series) { return q.list.all(kind, series).map(r => ({ key: r.key, made: num(r.made), head: parse(r.head) })); },
 
     /** Every series the Lab can read: each product's front month (when it has two contracts or more), then each contract. */

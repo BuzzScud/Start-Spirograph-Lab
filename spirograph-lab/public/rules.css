@@ -1,0 +1,98 @@
+/* The Turn rules tab (public/rules.js): r* classes, apart from style.css's shared ones. */
+.rRank .table{max-height:none}
+.rRank .table table{table-layout:fixed}
+.rRank tr.grp th,.rCmp tr.grp th{padding-bottom:0;border-bottom:0;color:var(--muted)}
+.rRank tr.on td{background:rgb(var(--violet-rgb) / 7%)}
+.rRank td{vertical-align:middle}
+.table td.num{text-align:right}
+.table th{text-align:left}
+.rRank thead tr:last-child th:nth-child(n+3):nth-child(-n+8),.rCmp thead tr:last-child th:nth-child(n+2){text-align:right}
+.table td.mut{color:var(--muted)}
+.rName{white-space:normal!important;font-family:var(--sans)!important}
+.rName b{color:var(--ink);font-weight:650}
+.rName small,.rLo{display:block;margin-top:3px;color:var(--muted);font:500 11.5px/1.35 var(--sans);white-space:normal}
+.rLo{color:var(--faint)}
+.rAct{text-align:right}
+.rAct .btn+.btn{margin-left:6px}
+.rTries{color:var(--ink);font-family:var(--mono)}
+.rNote{padding:10px 16px}
+
+.rGrid{display:grid;grid-template-columns:minmax(420px,520px) minmax(0,1fr);gap:12px;align-items:start}
+.rEdit{display:flex;flex-direction:column;gap:12px}
+.rEdit .gCardHead{margin-bottom:0}
+.rEdit select{max-width:220px}
+.rSec{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--border)}
+.rSec h4,.rNet h4{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0;font:650 12.5px/1.2 var(--sans);color:var(--ink)}
+.rSec h4 span:not(.rCost),.rNet h4 span{color:var(--muted);font-weight:500}
+.rSec .hint{margin:0}
+.rCost{margin-left:auto;padding:3px 8px;border-radius:999px;font:600 10.5px/1 var(--sans);background:rgb(255 255 255 / 6%);color:var(--muted)}
+.rCost.mid{background:rgb(245 181 68 / 10%);color:var(--amber)}
+.rNums{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.rNum{display:grid;grid-template-columns:minmax(0,1fr) 84px 26px;align-items:center;gap:6px;color:var(--ink-2);font:500 12.5px/1.2 var(--sans)}
+.rNum span{display:inline-flex;align-items:center;gap:6px}
+.rNum em{font-style:normal;color:var(--muted);font-size:11.5px}
+.rDot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--amber)}
+.rEdit input[type="number"],.rEdit input[type="text"],.rEdit input[type="time"]{height:30px;padding:0 8px;border-radius:8px;border:1px solid var(--border-2);background:#0d1118;color:var(--ink);font:500 12.5px/1 var(--mono);color-scheme:dark;min-width:0}
+.rEdit input[type="number"]{width:100%;text-align:right}
+.rNum.changed input{border-color:rgb(245 181 68 / 55%)}
+.rNameBox{display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:8px;color:var(--muted);font:600 12px/1 var(--sans)}
+.rNameBox input{font-family:var(--sans)!important}
+.rChips{display:flex;flex-wrap:wrap;gap:6px}
+.rChip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:999px;border:1px solid var(--border-2);background:transparent;color:var(--faint);font:600 12px/1 var(--sans);cursor:pointer;text-decoration:line-through;text-decoration-color:rgb(255 255 255 / 25%)}
+.rChip.on{background:rgb(var(--violet-rgb) / 14%);border-color:rgb(var(--violet-rgb) / 45%);color:var(--ink);text-decoration:none}
+.rChip:hover{color:var(--ink)}
+.rChip:focus-visible{outline:2px solid rgb(var(--violet-rgb) / 70%);outline-offset:2px}
+.sw{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--c)}
+.rZones{display:grid;gap:6px}
+.rZone{display:grid;grid-template-columns:48px 96px 116px 14px 116px minmax(0,1fr);align-items:center;gap:6px;font:500 12.5px/1.2 var(--sans)}
+.rZone .rChip{justify-content:center;padding:0;text-decoration:none}
+.rZone b{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--ink-2)}
+.rZone span{color:var(--faint);text-align:center}
+.rZone small{color:var(--muted);font-size:11.5px;white-space:nowrap}
+.rZone.off b,.rZone.off small{color:var(--faint)}
+.rChanges{padding:10px 12px;border-radius:10px;background:rgb(255 255 255 / 3%);color:var(--muted);font:500 12px/1.45 var(--sans)}
+.rChanges b{color:var(--ink-2)}
+.rBtns{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.rBtns .hint{display:inline-flex;align-items:center;gap:6px}
+
+.rOut{display:flex;flex-direction:column;gap:12px}
+.rOut .gCardHead{margin-bottom:0}
+.rOut .tVerdict p{margin:0 0 4px}
+.rCmp table{table-layout:fixed}
+.rCmp td:first-child{font-family:var(--sans);color:var(--ink-2)}
+.rCmp td:first-child small{color:var(--faint);font-size:11px}
+.rCmp tr.sep td{padding:0;height:6px;border-bottom:1px solid var(--border)}
+.rCmp th:first-child{width:130px}
+.rNet{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:12px;background:rgb(0 0 0 / 16%);box-shadow:inset 0 0 0 1px rgb(255 255 255 / 5%)}
+.rNetRow{display:grid;grid-template-columns:200px 60px 230px minmax(0,1fr);align-items:baseline;gap:10px;font:500 12.5px/1.3 var(--mono)}
+.rNetRow span{font-family:var(--sans);color:var(--ink-2)}
+.rNetRow i{font-style:normal;color:var(--muted)}
+.rNetRow em{font:500 12px/1.3 var(--sans);font-style:normal;color:var(--muted)}
+.rNetRow b.ok{color:var(--ok)}.rNetRow b.bad{color:var(--err)}
+.rAbout summary{cursor:pointer;list-style:none}
+.rAbout summary h3{display:inline;margin:0}
+.rAbout summary::before{content:"▸ ";color:var(--muted)}
+.rAbout[open] summary::before{content:"▾ "}
+.rAbout ol{margin:10px 0 0;padding-left:20px;color:var(--muted);font:500 12.5px/1.6 var(--sans);max-width:1100px}
+.rAbout b{color:var(--ink-2)}
+
+/* the rule picker on the grade's turns card and on the Forecast card */
+.rPick{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font:600 11.5px/1 var(--sans)}
+.rPick select{height:26px;max-width:220px;font-size:12px}
+
+@media (max-width:1320px){.rGrid{grid-template-columns:1fr}}
+@media (max-width:700px){
+  .rNums{grid-template-columns:1fr}
+  .rZone{grid-template-columns:52px minmax(0,1fr) 96px 16px 96px}
+  .rZone small{display:none}
+  .rNetRow{grid-template-columns:1fr 60px;row-gap:2px}
+  .rNetRow i,.rNetRow em{grid-column:1 / -1}
+  .rRank .table table{table-layout:auto}
+}
+.lpCastRule{display:flex;align-items:center;gap:8px;min-height:26px;font:500 12px/1 var(--sans);color:var(--ink-2)}
+.lpCastRule select{height:26px;max-width:200px;font-size:12px}
+.lpCastRule b{font-weight:600}
+.lpHeld{margin-left:auto;padding:3px 8px;border-radius:999px;background:rgb(245 181 68 / 12%);color:var(--amber);font:600 10.5px/1 var(--sans)}
+
+.lpCastG .lpNet{color:var(--violet)}
+@media (max-width:700px){.rZone{grid-template-columns:48px minmax(0,1fr) 116px 14px 116px}}
