@@ -38,6 +38,23 @@ It needs Node 24 or newer and has no packages to install. Stop it with Ctrl-C in
   - **Front month** stitches a product's contracts together. Each session uses whichever contract traded the most in the session before. At a roll, older prices are shifted by the gap between the two contracts, so price moves (and grades) are unchanged.
   - **Single contract** reads one contract only.
 
+## Nightly backup
+
+`lab.db` is copied to the BAY2 drive every night at 23:30. If the Mac is asleep at that time, the copy runs when it wakes.
+
+- **Where:** `/Volumes/BAY2/SPIROGRAPH LAB BACKUP/`
+  - `latest/` holds tonight's copy.
+  - `previous/` holds the night before's.
+  - Each copy is a checked snapshot, safe to take while the Lab is running, with a `backup.json` beside it.
+- **Drive unplugged:** it copies nothing and logs "not plugged in".
+- **Log:** `data/backup.log`. Launcher errors go to `~/Library/Logs/spirograph-lab-agents.log`.
+- **Commands:** `npm run backup` (now, by hand) · `npm run service:install` | `service:status` | `service:uninstall`. The job is saved with this Mac's Node path, so install it again after a Node upgrade.
+- **Restore:**
+  1. Stop the Lab.
+  2. Delete `data/lab.db-wal` and `data/lab.db-shm`.
+  3. Copy `latest/lab.db` over `data/lab.db`.
+  4. Start the Lab.
+
 ## The engine
 
 `engine/` is a copy of the Ladder's own files (see `engine/FROM-LADDER-COMMIT`), so the circles are fitted exactly as the Ladder fits them. Later Ladder changes don't affect the Lab until you copy them in again:
@@ -50,7 +67,8 @@ npm test
 ## Layout
 
 ```
-server/   server.mjs (http + static), lab.mjs (API + job queue), labJob.mjs, worker.mjs, labStore.mjs
+server/   server.mjs (http + static), lab.mjs (API + job queue), labJob.mjs, worker.mjs, labStore.mjs, backup.mjs
+scripts/  backup.mjs (the nightly copy), service.mjs (its launchd job), agent.mjs (launcher)
 lab/      labDay.js (day replay), labEdge.js (edge check), labNet.js (neural network), labSeries.js (front month), labPlayer.js, util.js
 public/   index.html, app.js, edge.js + edge.css (Edge check tab), net.js (network panel), style.css (turtle, rabbit, play and pop-up icons: Lucide, ISC)
 engine/   the Ladder's engine, copied
