@@ -2,7 +2,8 @@
 // nested Daily set circles on the left, the clock, prices and the six circles in the rail, the controls, and the market
 // against the pen over the whole day underneath. From the Monday 14 Sep replay page (15 Sep), made a component.
 //
-// The drawing is the day clock itself: each circle is half the one it rides on, its arm at speed × minutes since 6 pm.
+// The drawing is the day clock itself: each circle is half the one it rides on, its arm at speed × minutes since 6 pm,
+// turning clockwise from 12 o'clock. Every period divides the day, so at 6 pm, start and end, every arm points straight up.
 // The fitted sizes (± pts) and which way each circle moves first (▲ ▼) are the numbers beside it.
 import { COLORS, TFS } from '../engine/constants.js';
 import { fmtPeriod, fmtTF } from '../engine/format.js';
@@ -10,7 +11,7 @@ import { barsForPeriod } from '../engine/structure.js';
 import { dayScore } from './labDay.js';
 import { esc } from './util.js';
 
-const TAU = Math.PI * 2;
+const TAU = Math.PI * 2, TOP = Math.PI / 2;   // 12 o'clock
 const BG = '#0b0e14', INK = '#f4f7fb', MUTED = '#93a0b3', GRID = '#1b212c';
 const lift = (hex, t) => { const v = parseInt(hex.slice(1), 16), m = c => Math.round(c + (255 - c) * t); return `rgb(${m(v >> 16)},${m((v >> 8) & 255)},${m(v & 255)})`; };
 const MARKUP = `<div class="lpStage">
@@ -61,7 +62,7 @@ export function createLabPlayer(el) {
   const mktAt = s => { let k = Math.min(N, Math.floor(s)); while (k >= 0 && F.mkt[k] == null) k--; return k >= 0 ? F.mkt[k] : null; };
   function chain(s) {
     const out = []; let x = 0, y = 0;
-    for (let n = 0; n < L; n++) { const th = W[n] * s, cx = x, cy = y; x += RAD[n] * Math.cos(th); y += RAD[n] * Math.sin(th); out.push({ cx, cy, x, y, r: RAD[n] }); }
+    for (let n = 0; n < L; n++) { const th = TOP + W[n] * s, cx = x, cy = y; x += RAD[n] * Math.cos(th); y += RAD[n] * Math.sin(th); out.push({ cx, cy, x, y, r: RAD[n] }); }
     return out;
   }
   function fit(cv) {
@@ -103,11 +104,12 @@ export function createLabPlayer(el) {
       const c = ch[n], cx = X(c.cx), cy = Y(c.cy), r = c.r * p, dim = fast && n < 3 ? .25 : 1;
       ctx.globalAlpha = dim;
       if (r >= .6) { ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.strokeStyle = COL[n]; ctx.lineWidth = 1.4; ctx.stroke(); }
-      if (r >= 3) { const sx = cx + r; ctx.beginPath(); ctx.moveTo(sx - 5, cy); ctx.lineTo(sx + 5, cy); ctx.lineWidth = 2; ctx.strokeStyle = COL[n]; ctx.stroke(); }   // where the arm points at 6 pm
+      if (r >= 3) { const sy = cy - r; ctx.beginPath(); ctx.moveTo(cx, sy - 5); ctx.lineTo(cx, sy + 5); ctx.lineWidth = 2; ctx.strokeStyle = COL[n]; ctx.stroke(); }   // 12 o'clock: where the arm points at 6 pm
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(X(c.x), Y(c.y)); ctx.strokeStyle = COL[n]; ctx.globalAlpha = .7 * dim; ctx.lineWidth = 1.2; ctx.stroke();
       ctx.globalAlpha = dim; ctx.beginPath(); ctx.arc(X(c.x), Y(c.y), 2, 0, TAU); ctx.fillStyle = COL[n]; ctx.fill();
-      // only circles with room get a name: the small ones ride at the big ones' tops, where names collide; the rail names all six
-      if (r >= 60) { ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = TXT[n]; halo(ctx, `${LABELS[n][0]} ${A[n] < 0 ? '▲' : '▼'} ±${Math.abs(A[n]).toFixed(1)}`, cx, cy - r - 6); }
+      // only circles with room get a name: the small ones ride at the big ones' tops, where names collide; the rail names all six.
+      // The name sits outside the rim at 10:30, clear of 12 o'clock, where the next circle and every arm stand at 6 pm.
+      if (r >= 60) { ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillStyle = TXT[n]; halo(ctx, `${LABELS[n][0]} ${A[n] < 0 ? '▲' : '▼'} ±${Math.abs(A[n]).toFixed(1)}`, cx - r * Math.SQRT1_2 - 2, cy - r * Math.SQRT1_2 - 2); }
     }
     ctx.globalAlpha = 1;
     const px = X(pen.x), py = Y(pen.y), m = mktAt(s);
