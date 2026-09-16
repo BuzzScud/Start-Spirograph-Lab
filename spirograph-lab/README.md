@@ -6,11 +6,16 @@ A standalone app for the Spirograph's Daily set circles (1D · 4H · 2H · 24m �
   - The pen is always **held**: fitted once at the time on the green **Pen from** button: 6 pm (the Globex open) by default. Its menu offers the London open, the New York open and close, your own time, or a box to type any quarter-hour. It's fitted only on bars before that time, then kept to 6 pm.
   - Under the circles, an overview of the whole day and a 2/4/8-hour close-up that follows the playhead. Click or drag either to move; hover the close-up to read any minute. Slow (turtle) plays a day in 3 minutes, fast (rabbit) in 30 seconds.
 - **Multi-day grade:** pick a date range. Every 3 hours in it, the circles forecast the next 3 hours using only earlier prices, and each forecast is checked against the market. The page gives one verdict: path vs a flat line, direction vs always guessing the usual way, turns vs a random market.
-- **Edge check:** tests whether a small learner can find anything in those forecasts. If it can't, a neural network would only memorise noise.
-  - Below it, a real **neural network** (12 inputs → 8 hidden → up and size) trains live in the page on the grade's forecasts. Its inputs are the circles' numbers and the time the pen was frozen. It learns only from forecasts before each call.
-  - The server trains the same network when the grade is built. When the page finishes, it checks that its run matches the server's.
-  - Grades built before the network show "Rebuild the grade": grade the same range again.
-  - Click any node or line for its math on the call shown. An input opens a two-column pop-up. On the left: a what-if value for that call, presets (flip the call, or P(up) 10–90%) that show the value each one needs, and a retrain switch (Real, Shuffled, Negated, Left out). On the right: the answer, a curve of P(up) for every value of that input with each preset pinned on it, and the math in four steps. What-if edits never touch training; a retrain is marked as not comparable to the server's run.
+- **Edge check:** tests whether anything can learn from those forecasts. If a small learner can't, a bigger neural network would only memorise noise.
+  - **The race:** every caller (always up, the pen, three small learners, the neural network) as right calls beyond always guessing the usual way, call by call, inside the grey band luck alone reaches. Hover to read a call; click one to open its full wiring.
+  - **The scoreboard** doubles as the race's legend: each caller's rate against the luck band, points, and a strip of every call (green right, red wrong). Click a caller to pick out its line.
+  - **The network panel** keeps the neural network (12 inputs → 8 hidden → up and size) simple:
+    - its result, and **Watch it learn**, which replays its line on the race;
+    - **What it looks at**: four switches (the six circles, how well they fit, the pen's own move, time of day). Turn one off and it retrains by itself into a dashed "test run" line, and says whether that input mattered;
+    - **The call under your pointer**: what it said, what happened, and the inputs that pushed it most.
+  - The page trains the network itself, with the same code the server ran when the grade was built, and checks that both runs match.
+  - **Full wiring and math** opens a big pop-up: the network diagram with Train/Step, the loss and a call slider. Click any node or line for its math on the call shown. An input opens a two-column pop-up. On the left: a what-if value for that call, presets (flip the call, or P(up) 10–90%) that show the value each one needs, and a retrain switch (Real, Shuffled, Negated, Left out). On the right: the answer, a curve of P(up) for every value of that input with each preset pinned on it, and the math in four steps. What-if edits never touch training; a retrain is marked as not comparable to the server's run.
+  - Grades built before this version show "grade too old": press **Grade this range again**.
 
 ## Start it
 
@@ -47,7 +52,7 @@ npm test
 ```
 server/   server.mjs (http + static), lab.mjs (API + job queue), labJob.mjs, worker.mjs, labStore.mjs
 lab/      labDay.js (day replay), labEdge.js (edge check), labNet.js (neural network), labSeries.js (front month), labPlayer.js, util.js
-public/   index.html, app.js, net.js (network panel), style.css (turtle, rabbit and pop-up icons: Lucide, ISC)
+public/   index.html, app.js, edge.js + edge.css (Edge check tab), net.js (network panel), style.css (turtle, rabbit, play and pop-up icons: Lucide, ISC)
 engine/   the Ladder's engine, copied
 tests/    npm test
 ```

@@ -63,9 +63,12 @@ export const LEARNERS = [
 /** Walk forward over `rows`. `progress(done, total)` as it goes. */
 export function edgeCheck(rows, { progress = () => {} } = {}) {
   const n = rows.length, tested = Math.max(0, n - WARM);
-  const out = { rows: n, warm: WARM, tested, ready: n >= MIN_ROWS, noise: tested ? 1.96 * Math.sqrt(0.25 / tested) : NaN, baselines: [], learners: [] };
+  const out = { rows: n, warm: WARM, tested, ready: n >= MIN_ROWS, noise: tested ? 1.96 * Math.sqrt(0.25 / tested) : NaN, baselines: [], learners: [], calls: {} };
   if (!out.ready) { out.verdict = `only ${n} graded forecasts: the check needs at least ${MIN_ROWS} (${WARM} to learn from, 30 to call)`; return out; }
   const test = rows.slice(WARM), ups = test.filter(r => r.y).length, usual = Math.max(ups, tested - ups);
+  // every call in order, 1 up / 0 down, one string per caller: the page draws each call from these
+  out.calls.at = test.map(r => r.at);
+  out.calls.pen = test.map(r => (r.penDir > 0 ? 1 : 0)).join('');
   const penHits = test.filter(r => (r.penDir > 0 ? 1 : 0) === r.y).length;
   const penPts = test.reduce((s, r) => s + (r.penDir > 0 ? 1 : -1) * r.move, 0);
   out.baselines.push({ key: 'usual', label: `Always ${ups >= tested - ups ? 'up' : 'down'} (the usual way)`, hits: usual, n: tested, rate: usual / tested, points: null });
@@ -74,15 +77,17 @@ export function edgeCheck(rows, { progress = () => {} } = {}) {
   const every = Math.max(1, Math.ceil(n / 400)), total = LEARNERS.length * tested;
   let done = 0;
   for (const L of LEARNERS) {
-    let hits = 0, pts = 0, f = null;
+    let hits = 0, pts = 0, f = null, said = '';
     for (let i = WARM; i < n; i++) {
       if (!f || (i - WARM) % every === 0) { const tr = rows.slice(0, i); f = trainLogit(tr.map(L.feat), tr.map(r => r.y)); }
       const up = f(L.feat(rows[i])) > 0.5;
+      said += up ? '1' : '0';
       if ((up ? 1 : 0) === rows[i].y) hits++;
       pts += (up ? 1 : -1) * rows[i].move;
       if (++done % 20 === 0) progress(done, total);
     }
     out.learners.push({ key: L.key, label: L.label, hits, n: tested, rate: hits / tested, points: r1(pts) });
+    out.calls[L.key] = said;
   }
   const base = usual / tested, best = out.learners.reduce((a, b) => (b.rate > a.rate ? b : a));
   const clear = x => x.rate - base > out.noise;

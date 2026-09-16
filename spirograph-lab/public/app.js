@@ -5,6 +5,7 @@
 //                    trained live on them (lab/labNet.js, public/net.js)
 import { createLabPlayer } from '/lab/labPlayer.js';
 import { createNetPanel } from '/net.js';
+import { createEdgeView } from '/edge.js';
 import { esc, when, hm, tradeDay, isoDay, dayMonth, pct, sgn, int, arrow } from '/lab/util.js';
 import { COLORS } from '/engine/constants.js';
 import { nyEpoch } from '/engine/levels.js';
@@ -39,6 +40,7 @@ const st = {
 };
 const player = createLabPlayer($('player'));
 const netPanel = createNetPanel($('eNet'));
+const edgeView = createEdgeView($('eView'), { netPanel, wire: $('eWire'), regrade: (from, to) => startGrade(from, to) });
 
 // ---------------------------------------------------------------- tabs
 function setTab(tab) {
@@ -48,7 +50,7 @@ function setTab(tab) {
   for (const b of document.querySelectorAll('#tabs [data-tab]')) { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }
   for (const t of TABS) $('pane-' + t).hidden = t !== st.tab;
   if (st.tab === 'day' && st.day) player.show(); else player.hide();
-  if (st.tab !== 'edge') netPanel.stop();
+  if (st.tab !== 'edge') { netPanel.stop(); edgeView.stop(); }
 }
 $('tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
 $('tabs').addEventListener('keydown', e => {
@@ -140,18 +142,22 @@ $('gQuick').addEventListener('click', e => { const b = e.target.closest('button'
 // From = the first session traded on that date (its 6 pm open the evening before); To = through that date's session
 const fromOf = iso => { const [y, m, d] = iso.split('-').map(Number), p = nyDateAdd(y, m, d, -1); return nyEpoch(p.y, p.mo, p.d, 18, 0); };
 const toOf = iso => { const [y, m, d] = iso.split('-').map(Number); return nyEpoch(y, m, d, 18, 0); };
-$('gRun').addEventListener('click', async () => {
+$('gRun').addEventListener('click', () => {
   if (!$('gFrom').value || !$('gTo').value) return toast('Pick both dates', true);
+  startGrade(fromOf($('gFrom').value), toOf($('gTo').value));
+});
+async function startGrade(from, to) {
   try {
-    const r = await api('grade', { series: st.series, from: fromOf($('gFrom').value), to: toOf($('gTo').value) });
+    const r = await api('grade', { series: st.series, from, to });
     $('gMsg').textContent = 'Grading… every 3-hour slot is fitted and checked (about 15 seconds for two months).';
     watch(r.id, async job => {
       if (job.status !== 'done') { toast(`Grade: ${job.detail || job.status}`, true); $('gMsg').textContent = job.detail || job.status; return; }
       toast(`Grade done: ${job.detail}`);
       await loadGrades(job.key);
     });
+    if (st.tab === 'edge') toast('Grading this range again… about 15 seconds for two months. The check refreshes when it is done.');
   } catch (e) { toast(e.message, true); }
-});
+}
 async function loadGrades(pick) {
   try { st.grades = (await api(`grades?series=${encodeURIComponent(st.series)}`)).grades; } catch (e) { $('gMsg').textContent = e.message; return; }
   const saved = store.get('grade.' + st.series, '');
@@ -247,23 +253,13 @@ function paintReplay({ run, grade: g, closes: all }) {
   $('gReplayClose').addEventListener('click', () => { st.runSel = null; $('gReplay').hidden = true; paintRuns(); });
 }
 
-// ---------------------------------------------------------------- edge check
+// ---------------------------------------------------------------- edge check (public/edge.js)
 function paintEdge() {
   const g = st.grade;
-  if (!g) { $('eBody').hidden = true; $('eMsg').textContent = 'No grade picked. Run one on Multi-day grade first: the check reads its forecasts.'; netPanel.set(null); return; }
-  const e = g.edge;
-  $('eMsg').textContent = ''; $('eBody').hidden = false;
+  $('eMsg').textContent = g ? '' : 'No grade picked. Run one on Multi-day grade first: the check reads its forecasts.';
+  $('eView').hidden = !g;
   netPanel.set(g);
-  $('eHead').innerHTML = `<b class="word ${e.ready ? (e.edge ? 'ok' : 'bad') : ''}">${dot(e.ready ? e.edge : null)}${!e.ready ? 'Too few forecasts' : e.edge ? 'Something to look at' : 'Nothing to learn yet'}</b><span>${esc(g.name)} · ${span(g.from, g.to)} · ${esc(e.verdict)}</span>`;
-  if (!e.ready) { $('eTable').innerHTML = ''; $('eNote').textContent = ''; return; }
-  const nn = g.net && g.net.tested ? [{ key: 'net', label: 'Neural network (circles + pen time)', hits: g.net.hits, n: g.net.tested, rate: g.net.rate, points: g.net.points }] : [];
-  const base = e.baselines[0].rate, lo = 0.3, hi = 0.7, P = v => `${(100 * (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)).toFixed(1)}%`;
-  const bar = r => `<div class="rate" title="${pct(r)}"><i class="band" style="left:${P(base - e.noise)};width:calc(${P(base + e.noise)} - ${P(base - e.noise)})"></i><i class="base" style="left:${P(base)}"></i><i class="val" style="left:${P(r)}"></i></div>`;
-  const row = (x, kind) => `<tr class="${kind}"><td>${esc(x.label)}${kind === 'base' ? ' <i>yardstick</i>' : ''}</td><td>${x.hits} / ${x.n}</td><td>${pct(x.rate)}</td><td>${bar(x.rate)}</td>`
-    + `<td class="${kind === 'base' && x.key === 'usual' ? 'muted' : x.rate - base > e.noise ? 'ok' : ''}">${x.key === 'usual' ? '—' : `${x.rate >= base ? '+' : '−'}${Math.abs(Math.round(100 * (x.rate - base)))} pts`}</td><td class="${x.points == null ? 'muted' : x.points >= 0 ? 'ok' : 'bad'}">${x.points == null ? '—' : sgn(x.points)}</td></tr>`;
-  $('eTable').innerHTML = `<table><thead><tr><th>Who calls the direction</th><th>Right</th><th>Rate</th><th>Against the usual way <i>(band: chance)</i></th><th>Beyond usual way</th><th>Points, 1 lot</th></tr></thead><tbody>`
-    + e.baselines.map(x => row(x, 'base')).join('') + [...e.learners, ...nn].map(x => row(x, 'learner')).join('') + '</tbody></table>';
-  $('eNote').innerHTML = `Each learner calls ${e.tested} forecasts, after learning from the first ${e.warm}. With that many calls, chance alone moves a rate by about <b>±${Math.round(100 * e.noise)} points</b> (the shaded band). A learner shows an edge only outside it. “Points, 1 lot” adds up the 3-hour moves each caller would have caught or lost.`;
+  edgeView.set(g);
 }
 
 // ---------------------------------------------------------------- jobs

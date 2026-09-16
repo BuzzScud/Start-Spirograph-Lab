@@ -21,6 +21,16 @@ test('a learner finds a real signal in the circles, and nothing in noise', () =>
   assert.match(none.verdict, /nothing here for a bigger model/);
 });
 
+test('every call is kept, in order, and adds up to each score', () => {
+  const x = edgeCheck(rows(200, true)), test = rows(200, true).slice(WARM);
+  assert.deepEqual(x.calls.at, test.map(r => r.at));
+  assert.equal(x.calls.pen, '1'.repeat(x.tested));
+  for (const l of x.learners) {
+    assert.equal(x.calls[l.key].length, x.tested);
+    assert.equal([...x.calls[l.key]].filter((c, k) => Number(c) === test[k].y).length, l.hits, l.key);
+  }
+});
+
 test('too few rows says so rather than guessing', () => {
   const x = edgeCheck(rows(WARM + 5, true));
   assert.equal(x.ready, false);

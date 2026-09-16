@@ -7,6 +7,7 @@
 <title>Spirograph Lab</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2306080d'/%3E%3Ccircle cx='13' cy='16' r='8' fill='none' stroke='%23a78bfa' stroke-width='2'/%3E%3Ccircle cx='19' cy='16' r='4' fill='none' stroke='%23a78bfa' stroke-width='2'/%3E%3Ccircle cx='23' cy='16' r='2' fill='%23a78bfa'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/edge.css">
 </head>
 <body>
 <header class="bar">
@@ -59,24 +60,17 @@
   </section>
 
   <section class="pane" id="pane-edge" role="tabpanel" hidden>
-    <p class="sub">Could a learning model — a neural network, say — find something in the circles? First, a simpler question: can a <b>small learner</b> find anything at all? It takes the forecasts of the grade picked on <b>Multi-day grade</b>, in time order. It learns only from the ones before each call, then calls the next one's direction. If a small learner can't beat always guessing the usual way, a bigger model would only memorise noise.</p>
     <div class="msg" id="eMsg"></div>
-    <div id="eBody" hidden>
-      <div class="headline" id="eHead"></div>
-      <div class="table" id="eTable"></div>
-      <p class="note" id="eNote"></p>
-      <section class="netPanel" id="eNet"></section>
-      <div class="next">
-        <h3>What would make a neural network worth trying</h3>
-        <ol>
-          <li><b>More examples.</b> Forecasts every 15 minutes instead of every 3 hours, and more instruments, give thousands of rows from the same bars.</li>
-          <li><b>This check as the pass mark.</b> A new idea counts only if it beats the usual way here, on calls it never saw.</li>
-          <li><b>Small first.</b> Only if a small learner finds something is a bigger model worth building.</li>
-        </ol>
-      </div>
-    </div>
+    <div id="eView" hidden></div>
   </section>
 </main>
+<dialog class="edWire" id="eWire" aria-labelledby="eWireTitle">
+  <div class="edWireHead">
+    <div><h2 id="eWireTitle">Full wiring and math</h2><span data-w="sub"></span></div>
+    <button type="button" class="btn" data-w="close">Close</button>
+  </div>
+  <div class="edWireBody"><section class="netPanel" id="eNet"></section></div>
+</dialog>
 <div class="toast" id="toast" role="status" hidden></div>
 <script type="module" src="/app.js"></script>
 </body>

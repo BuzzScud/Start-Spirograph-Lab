@@ -11,7 +11,7 @@ import { weekStartNy } from '../engine/anchors.js';
 import { seriesName } from '../lab/labSeries.js';
 
 const M = 60000, H = 3600e3;
-export const GRADE_VERSION = 2;   // 2: with the neural network
+export const GRADE_VERSION = 3;   // 2: with the neural network · 3: the edge check keeps every call
 const WHY = { history: 'too few bars banked before them', 'no-bars': 'no bars before them', 'no-fit': 'no fit' };
 
 export function runLabJob(lab, job, now = Date.now()) {

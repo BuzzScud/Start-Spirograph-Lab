@@ -526,5 +526,15 @@ export function createNetPanel(el) {
       reset();
     },
     stop() { pause(); if (S.grade) paint(); },
+    /** Trained to the end on the real inputs, showing call k (the Edge check's "Full wiring and math" pop-up opens here). */
+    showCall(k) {
+      if (!S.grade) return;
+      pause();
+      if (variant()) { S.mask = INPUTS.map(() => 1); S.tweak = {}; reset(); }
+      finish();
+      S.pick = k == null || k >= S.calls.length - 1 ? null : Math.max(0, k);
+      S.edits = {}; S.preset = null;
+      paint();
+    },
   };
 }
